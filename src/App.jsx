@@ -45,20 +45,9 @@ function DentalPortalApp() {
   if (!authenticatedUser) {
     return (
       <div className="h-screen w-screen bg-[#f5f7f6] flex flex-col overflow-hidden font-sans">
-       {/* 3. Main System Workspace Viewport */}
-      <main className="flex-1 h-full overflow-hidden p-8 flex flex-col">
-        {isManager && <ManagerModule {...contextData} currentView={currentView} />}
-        {isDentist && (
-          <DentistModule 
-            {...contextData} 
-            updateAppointmentStatus={contextData.updateAppointmentStatus} 
-            currentView={currentView} 
-            user={authenticatedUser} 
-          />
-        )}
-        {isAssistant && <AssistantModule {...contextData} />}
-        {isPatient && <PatientModule {...contextData} currentView={currentView} user={authenticatedUser} />}
-      </main>
+        <main className="flex-1 w-full flex items-center justify-center p-6">
+          <Login onLogin={handleLoginSuccess} />
+        </main>
       </div>
     );
   }
@@ -102,7 +91,7 @@ function DentalPortalApp() {
               </>
             )}
 
-            {isDentist &&  (
+            {isDentist && (
               <>
                 <button onClick={() => setCurrentView('dashboard')} className={`w-full text-left px-4 py-3 rounded-xl font-bold text-xs transition cursor-pointer ${currentView === 'dashboard' ? 'bg-[#164e43] text-white' : 'text-[#607368] hover:bg-[#f5f7f6]'}`}>
                   📊 Dashboard
@@ -110,8 +99,8 @@ function DentalPortalApp() {
                 <button onClick={() => setCurrentView('logs')} className={`w-full text-left px-4 py-3 rounded-xl font-bold text-xs transition cursor-pointer ${currentView === 'logs' ? 'bg-[#164e43] text-white' : 'text-[#607368] hover:bg-[#f5f7f6]'}`}>
                   📋 Patient Logs
                 </button>
-                <button onClick={() => setCurrentView('charting')} className={`w-full text-left px-4 py-3 rounded-xl font-bold text-xs transition cursor-pointer ${currentView === 'charting' ? 'bg-[#164e43] text-white' : 'text-[#607368] hover:bg-[#f5f7f6]'}`}>
-                  🦷 Dental Charting
+                <button onClick={() => setCurrentView('reports')} className={`w-full text-left px-4 py-3 rounded-xl font-bold text-xs transition cursor-pointer ${currentView === 'reports' ? 'bg-[#164e43] text-white' : 'text-[#607368] hover:bg-[#f5f7f6]'}`}>
+                  📈 Reports & Analytics
                 </button>
                 <button onClick={() => setCurrentView('profile')} className={`w-full text-left px-4 py-3 rounded-xl font-bold text-xs transition cursor-pointer ${currentView === 'profile' ? 'bg-[#164e43] text-white' : 'text-[#607368] hover:bg-[#f5f7f6]'}`}>
                   👤 Profile
@@ -156,7 +145,14 @@ function DentalPortalApp() {
       {/* 3. Main System Workspace Viewport */}
       <main className="flex-1 h-full overflow-hidden p-8 flex flex-col">
         {isManager && <ManagerModule {...contextData} currentView={currentView} />}
-        {isDentist && <DentistModule {...contextData} currentView={currentView} user={authenticatedUser} />}
+        {isDentist && (
+          <DentistModule 
+            {...contextData} 
+            updateAppointmentStatus={contextData.updateAppointmentStatus} 
+            currentView={currentView} 
+            user={authenticatedUser} 
+          />
+        )}
         {isAssistant && <AssistantModule {...contextData} />}
         {isPatient && <PatientModule {...contextData} currentView={currentView} user={authenticatedUser} />}
       </main>

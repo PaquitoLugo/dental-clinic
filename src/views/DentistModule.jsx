@@ -17,18 +17,10 @@ const DAY_OPTIONS = Array.from({ length: 31 }, (_, i) => i + 1);
 export default function DentistModule({ 
   appointments, 
   services, 
-  saveToothChart, 
-  fetchPatientChart, 
   updateAppointmentStatus, 
   user, 
   currentView 
 }) {
-  // Charting state
-  const [selectedAppointment, setSelectedAppointment] = useState(null);
-  const [selectedTooth, setSelectedTooth] = useState(null);
-  const [clinicalFinding, setClinicalFinding] = useState('Healthy');
-  const [diagnosisNotes, setDiagnosisNotes] = useState('');
-
   // Patient Logs Filter & Search State
   const [searchQuery, setSearchQuery] = useState('');
   const [filterService, setFilterService] = useState('All');
@@ -157,9 +149,11 @@ export default function DentistModule({
   const dentistName = `${firstName} ${middleName ? middleName + ' ' : ''}${lastName}`.trim();
   const assignedAppointments = appointments.filter(a => a.assigned_dentist === dentistName || !a.assigned_dentist);
 
+  // Metrics calculation
   const totalPatients = assignedAppointments.length;
   const pendingPatients = assignedAppointments.filter(a => a.status === 'Pending' || a.status === 'Checked-in').length;
   const completedPatients = assignedAppointments.filter(a => a.status === 'Completed').length;
+  const completionRate = totalPatients > 0 ? Math.round((completedPatients / totalPatients) * 100) : 0;
 
   const filteredLogs = assignedAppointments.filter(a => {
     const matchesSearch = a.patient_name.toLowerCase().includes(searchQuery.toLowerCase());
@@ -168,24 +162,6 @@ export default function DentistModule({
     const matchesDate = !filterDate || a.appointment_date === filterDate;
     return matchesSearch && matchesService && matchesStatus && matchesDate;
   });
-
-  const handleToothClick = (toothNum) => setSelectedTooth(toothNum);
-
-  const handleSaveChart = async (e) => {
-    e.preventDefault();
-    if (!selectedAppointment || !selectedTooth) return;
-
-    await saveToothChart({
-      patient_name: selectedAppointment.patient_name,
-      tooth_number: selectedTooth,
-      clinical_finding: clinicalFinding,
-      diagnosis_notes: diagnosisNotes
-    });
-
-    alert(`Tooth #${selectedTooth} updated successfully!`);
-    setSelectedTooth(null);
-    setDiagnosisNotes('');
-  };
 
   // Mark patient procedure as completed in Supabase
   const handleMarkAsDone = async (appointmentId) => {
@@ -302,7 +278,7 @@ export default function DentistModule({
         </div>
       )}
 
-      {/* 2. PATIENT LOGS VIEW (WITH "MARK AS DONE" ACTION BUTTON) */}
+      {/* 2. PATIENT LOGS VIEW */}
       {currentView === 'logs' && (
         <div className="flex-1 overflow-y-auto space-y-4 flex flex-col">
           <div className="flex justify-between items-center">
@@ -315,7 +291,6 @@ export default function DentistModule({
             </span>
           </div>
 
-          {/* Search & Filters Toolbar */}
           <div className="grid grid-cols-4 gap-3 bg-[#f8faf9] p-4 rounded-2xl border border-[#d4e2dc]">
             <div>
               <label className="block text-[11px] font-bold text-[#607368] mb-1">Search Patient</label>
@@ -374,7 +349,6 @@ export default function DentistModule({
             </div>
           </div>
 
-          {/* Logs Table with "Mark as Done" Column */}
           <div className="flex-1 overflow-y-auto">
             <table className="w-full text-left border-collapse">
               <thead>
@@ -429,80 +403,55 @@ export default function DentistModule({
         </div>
       )}
 
-      {/* 3. DENTAL CHARTING VIEW */}
-      {currentView === 'charting' && (
-        <div className="h-full grid grid-cols-12 gap-6 overflow-hidden">
-          <div className="col-span-4 flex flex-col gap-4 overflow-y-auto pr-2">
-            <div>
-              <h3 className="font-black text-lg text-[#13241b]">Select Patient for Charting</h3>
-              <select 
-                className="w-full border border-[#d4e2dc] rounded-xl p-3 text-xs bg-[#f5f7f6] mt-2 font-bold"
-                value={selectedAppointment ? selectedAppointment.id : ''}
-                onChange={e => {
-                  const found = assignedAppointments.find(a => a.id === Number(e.target.value));
-                  setSelectedAppointment(found || null);
-                }}
-              >
-                <option value="">-- Choose Patient --</option>
-                {assignedAppointments.map(a => (
-                  <option key={a.id} value={a.id}>{a.patient_name} ({a.service_name})</option>
-                ))}
-              </select>
-            </div>
-
-            {selectedAppointment && (
-              <form onSubmit={handleSaveChart} className="bg-[#f8faf9] border border-[#d4e2dc] rounded-2xl p-4 space-y-4">
-                <h4 className="font-bold text-xs text-[#164e43] uppercase">
-                  {selectedTooth ? `Editing Tooth #${selectedTooth}` : 'Click a tooth on the arch ➔'}
-                </h4>
-                <div>
-                  <label className="block text-xs font-bold text-[#607368] mb-1">Clinical Finding</label>
-                  <select 
-                    value={clinicalFinding} 
-                    onChange={e => setClinicalFinding(e.target.value)}
-                    className="w-full border border-[#d4e2dc] rounded-xl p-2.5 text-xs bg-white"
-                  >
-                    <option value="Healthy">Healthy (HEA)</option>
-                    <option value="Caries">Caries (CAR)</option>
-                    <option value="Filled">Filled (FIL)</option>
-                    <option value="Missing">Missing (MIS)</option>
-                    <option value="Crown">Crown (CRO)</option>
-                  </select>
-                </div>
-                <div>
-                  <label className="block text-xs font-bold text-[#607368] mb-1">Diagnosis Notes</label>
-                  <textarea 
-                    rows="3" 
-                    value={diagnosisNotes} 
-                    onChange={e => setDiagnosisNotes(e.target.value)}
-                    placeholder="Add clinical observations..."
-                    className="w-full border border-[#d4e2dc] rounded-xl p-2.5 text-xs bg-white"
-                  />
-                </div>
-                <button 
-                  type="submit" 
-                  disabled={!selectedTooth}
-                  className="w-full bg-[#164e43] text-white py-3 rounded-xl font-bold text-xs hover:bg-[#0f362e] transition cursor-pointer disabled:opacity-50"
-                >
-                  Update Tooth Record
-                </button>
-              </form>
-            )}
+      {/* 3. REPORTS & ANALYTICS VIEW */}
+      {currentView === 'reports' && (
+        <div className="flex-1 overflow-y-auto space-y-6">
+          <div>
+            <h2 className="font-black text-2xl text-[#13241b]">Clinical Reports & Analytics</h2>
+            <p className="text-xs text-[#607368]">Performance metrics and procedure breakdowns for your practice.</p>
           </div>
 
-          <div className="col-span-8 overflow-y-auto border border-[#d4e2dc] rounded-2xl p-4 bg-[#f8faf9]">
-            <h4 className="font-black text-sm text-[#13241b] mb-3">FDI Adult Dental Arch (Click tooth to select)</h4>
-            <div className="grid grid-cols-8 gap-2">
-              {Array.from({ length: 32 }, (_, i) => i + 1).map(toothNum => (
-                <button
-                  key={toothNum}
-                  type="button"
-                  onClick={() => handleToothClick(toothNum)}
-                  className={`p-4 rounded-xl border font-bold text-xs flex flex-col items-center justify-center transition cursor-pointer ${selectedTooth === toothNum ? 'bg-[#164e43] text-white border-[#164e43]' : 'bg-white border-[#d4e2dc] text-[#13241b] hover:bg-[#e3ede6]'}`}
-                >
-                  <span>#{toothNum}</span>
-                </button>
-              ))}
+          <div className="grid grid-cols-3 gap-6">
+            <div className="bg-[#f8faf9] border border-[#d4e2dc] rounded-2xl p-6 shadow-2xs">
+              <p className="text-xs font-bold text-[#607368] uppercase tracking-wider">Completion Rate</p>
+              <h3 className="text-4xl font-black text-[#164e43] mt-3">{completionRate}%</h3>
+            </div>
+            <div className="bg-[#f8faf9] border border-[#d4e2dc] rounded-2xl p-6 shadow-2xs">
+              <p className="text-xs font-bold text-[#607368] uppercase tracking-wider">Total Completed</p>
+              <h3 className="text-4xl font-black text-emerald-600 mt-3">{completedPatients}</h3>
+            </div>
+            <div className="bg-[#f8faf9] border border-[#d4e2dc] rounded-2xl p-6 shadow-2xs">
+              <p className="text-xs font-bold text-[#607368] uppercase tracking-wider">Pending Procedures</p>
+              <h3 className="text-4xl font-black text-amber-600 mt-3">{pendingPatients}</h3>
+            </div>
+          </div>
+
+          <div className="border-t border-[#d4e2dc] pt-6">
+            <h4 className="font-black text-base text-[#13241b] mb-4">Service Breakdown Summary</h4>
+            <div className="bg-[#f8faf9] border border-[#d4e2dc] rounded-2xl p-4">
+              <table className="w-full text-left border-collapse text-xs">
+                <thead>
+                  <tr className="border-b border-[#d4e2dc] text-[11px] font-bold text-[#607368] uppercase">
+                    <th className="py-3 px-2">Service Name</th>
+                    <th className="py-3 px-2 text-center">Total Requests</th>
+                    <th className="py-3 px-2 text-right">Status Ratio</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-[#f0f5f2]">
+                  {services.map(s => {
+                    const count = assignedAppointments.filter(a => a.service_name === s.service_name).length;
+                    return (
+                      <tr key={s.id} className="hover:bg-white">
+                        <td className="py-3 px-2 font-bold text-[#13241b]">{s.service_name}</td>
+                        <td className="py-3 px-2 text-center font-semibold text-[#164e43]">{count}</td>
+                        <td className="py-3 px-2 text-right text-gray-500">
+                          {totalPatients > 0 ? `${Math.round((count / totalPatients) * 100)}% of workload` : '0%'}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
             </div>
           </div>
         </div>

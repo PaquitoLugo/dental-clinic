@@ -1,238 +1,460 @@
 import React, { useState } from 'react';
 
-export default function ManagerModule({ services, addService, updateService, deleteService, appointments }) {
-  // New service form state
-  const [serviceName, setServiceName] = useState('');
-  const [category, setCategory] = useState('Preventive');
+export default function ManagerModule({ services, addService, updateService, deleteService, appointments, currentView }) {
+  const [selectedCategory, setSelectedCategory] = useState('');
+  const [selectedService, setSelectedService] = useState('');
+  const [isCustomService, setIsCustomService] = useState(false);
+  const [customServiceName, setCustomServiceName] = useState('');
   const [duration, setDuration] = useState(30);
   const [price, setPrice] = useState('');
+  const [formError, setFormError] = useState('');
 
-  // Editing state
+  const [catalogSearchQuery, setCatalogSearchQuery] = useState('');
+  const [catalogFilterCategory, setCatalogFilterCategory] = useState('ALL');
+  const [catalogSortPrice, setCatalogSortPrice] = useState('');
+
   const [editingId, setEditingId] = useState(null);
   const [editName, setEditName] = useState('');
-  const [editCategory, setEditCategory] = useState('Preventive');
+  const [editCategory, setEditCategory] = useState('');
   const [editDuration, setEditDuration] = useState(30);
   const [editPrice, setEditPrice] = useState('');
 
+  const [modalConfig, setModalConfig] = useState({
+    isOpen: false,
+    title: '',
+    message: '',
+    onConfirm: null
+  });
+
+  // Strict separation of active database records vs inactive/available database records
+  const activeServices = services.filter(s => s.is_active !== false);
+  const inactiveServices = services.filter(s => s.is_active === false);
+
+  // Categories extracted strictly from database records
+  const categoriesFromDb = [...new Set(services.map(s => s.category))].filter(Boolean);
+
+  // Dropdown options populated strictly from database inactive rows matching category
+ const availableServicesInCategory = inactiveServices
+  .filter(s => s.category === selectedCategory)
+  .filter((s, i, arr) =>
+    arr.findIndex(x => x.service_name.trim().toLowerCase() === s.service_name.trim().toLowerCase()) === i
+  );
+
+  const handleCategoryChange = (e) => {
+    const cat = e.target.value;
+    setSelectedCategory(cat);
+    setSelectedService('');
+    setIsCustomService(false);
+    setCustomServiceName('');
+    setFormError('');
+  };
+
+  const handleServiceChange = (e) => {
+    const val = e.target.value;
+    setFormError('');
+    if (val === 'CUSTOM') {
+      setIsCustomService(true);
+      setSelectedService('');
+    } else {
+      setIsCustomService(false);
+      setSelectedService(val);
+      const matched = inactiveServices.find(s => s.service_name === val);
+      if (matched) {
+        if (matched.price) setPrice(matched.price);
+        if (matched.duration_mins) setDuration(matched.duration_mins);
+      }
+    }
+  };
+
   const handleAddService = async (e) => {
     e.preventDefault();
-    if (!serviceName || !price) return;
+    setFormError('');
+      const finalServiceName = isCustomService ? customServiceName.trim() : selectedService;
+      if (!selectedCategory || !finalServiceName || !price) return;
+
+
+    try {
     await addService({
-      service_name: serviceName,
-      category,
+      service_name: finalServiceName,
+      category: selectedCategory,
       duration_mins: parseInt(duration),
       price: parseFloat(price),
       is_active: true
     });
-    setServiceName('');
+
+     setSelectedCategory('');
+    setSelectedService('');
+    setIsCustomService(false);
+    setCustomServiceName('');
     setPrice('');
+    setDuration(30);
+  } catch (err) {
+    setFormError(err.message || 'Failed to save service to Supabase.');
+  }
   };
 
   const startEditing = (s) => {
     setEditingId(s.id);
-    setEditName(s.service_name || s.name || '');
-    setEditCategory(s.category || 'Preventive');
+    setEditName(s.service_name || '');
+    setEditCategory(s.category || '');
     setEditDuration(s.duration_mins || 30);
     setEditPrice(s.price || '');
   };
 
-  const handleSaveEdit = async (id) => {
-    await updateService(id, {
-      service_name: editName,
-      category: editCategory,
-      duration_mins: parseInt(editDuration),
-      price: parseFloat(editPrice)
+  const confirmSaveEdit = (id) => {
+    setModalConfig({
+      isOpen: true,
+      title: "Save Changes",
+      message: "Are you sure to save changes to this service in Supabase?",
+      onConfirm: async () => {
+        if (updateService) {
+          await updateService(id, {
+            service_name: editName,
+            category: editCategory,
+            duration_mins: parseInt(editDuration),
+            price: parseFloat(editPrice)
+          });
+        }
+        setEditingId(null);
+        setModalConfig({ isOpen: false, title: '', message: '', onConfirm: null });
+      }
     });
-    setEditingId(null);
   };
 
-  const handleDelete = async (id) => {
-    if (window.confirm('Are you sure you want to delete this service?')) {
-      await deleteService(id);
-    }
+  const confirmDelete = (id) => {
+    setModalConfig({
+      isOpen: true,
+      title: "Remove Service",
+      message: "Are you sure to remove this service from Supabase?",
+      onConfirm: async () => {
+        if (deleteService) {
+          await deleteService(id);
+        }
+        setModalConfig({ isOpen: false, title: '', message: '', onConfirm: null });
+      }
+    });
   };
+
+  const filteredAndSortedServices = activeServices
+    .filter(s => {
+      const sName = (s.service_name || '').toLowerCase();
+      const matchesSearch = sName.includes(catalogSearchQuery.toLowerCase());
+      const matchesCategory = catalogFilterCategory === 'ALL' || s.category === catalogFilterCategory;
+      return matchesSearch && matchesCategory;
+    })
+    .sort((a, b) => {
+      const priceA = parseFloat(a.price || 0);
+      const priceB = parseFloat(b.price || 0);
+      if (catalogSortPrice === 'asc') return priceA - priceB;
+      if (catalogSortPrice === 'desc') return priceB - priceA;
+      return 0;
+    });
 
   const totalRevenue = appointments
     ?.filter(a => a.status === 'Completed')
     ?.reduce((sum, a) => {
       const sName = a.service_name || a.name || a.title;
-      const matchedService = services.find(s => (s.service_name || s.name || s.title) === sName);
+      const matchedService = activeServices.find(s => s.service_name === sName);
       return sum + (matchedService ? parseFloat(matchedService.price || 0) : 0);
     }, 0) || 0;
 
   return (
-    <div className="h-full w-full grid grid-cols-12 gap-6 overflow-hidden">
+    <div className="h-full w-full flex flex-col overflow-hidden font-sans relative">
       
-      {/* Left Column: Analytics & Add Service Form */}
-      <div className="col-span-4 flex flex-col gap-6 overflow-y-auto pr-2">
-        <div className="grid grid-cols-2 gap-4">
-          <div className="bg-white border border-[#d4e2dc] rounded-2xl p-5 shadow-2xs">
-            <p className="text-xs font-bold text-[#607368] uppercase tracking-wider">Completed Revenue</p>
-            <h3 className="text-2xl font-black text-[#164e43] mt-2">₱{totalRevenue.toLocaleString()}</h3>
-          </div>
-          <div className="bg-white border border-[#d4e2dc] rounded-2xl p-5 shadow-2xs">
-            <p className="text-xs font-bold text-[#607368] uppercase tracking-wider">Active Services</p>
-            <h3 className="text-2xl font-black text-[#13241b] mt-2">{services.length}</h3>
+      {modalConfig.isOpen && (
+        <div className="absolute inset-0 bg-black/40 backdrop-blur-2xs z-50 flex items-center justify-center p-4">
+          <div className="bg-white border border-[#d4e2dc] rounded-2xl p-6 max-w-sm w-full shadow-xl space-y-4">
+            <div>
+              <h3 className="font-black text-lg text-[#13241b]">{modalConfig.title}</h3>
+              <p className="text-xs text-[#607368] mt-1">{modalConfig.message}</p>
+            </div>
+            <div className="flex gap-2 pt-2">
+              <button
+                type="button"
+                onClick={modalConfig.onConfirm}
+                className="flex-1 bg-[#164e43] text-white py-2.5 rounded-xl font-bold text-xs hover:bg-[#0f362e] transition cursor-pointer"
+              >
+                Confirm
+              </button>
+              <button
+                type="button"
+                onClick={() => setModalConfig({ isOpen: false, title: '', message: '', onConfirm: null })}
+                className="flex-1 bg-gray-100 text-gray-700 py-2.5 rounded-xl font-bold text-xs hover:bg-gray-200 transition cursor-pointer"
+              >
+                Cancel
+              </button>
+            </div>
           </div>
         </div>
+      )}
 
-        <div className="bg-white border border-[#d4e2dc] rounded-2xl p-6 shadow-2xs">
-          <h3 className="font-black text-lg text-[#13241b] mb-4">Add Clinic Service</h3>
-          <form onSubmit={handleAddService} className="space-y-4">
-            <div>
-              <label className="block text-xs font-bold text-[#607368] mb-1">Service Title</label>
-              <input 
-                type="text" 
-                required 
-                value={serviceName} 
-                onChange={e => setServiceName(e.target.value)} 
-                placeholder="e.g. Tooth Extraction"
-                className="w-full border border-[#d4e2dc] rounded-xl p-3 text-xs bg-[#f5f7f6] focus:outline-none focus:border-[#164e43]"
-              />
+      {currentView === 'dashboard' && (
+        <div className="flex-1 overflow-y-auto space-y-6">
+          <div>
+            <h2 className="font-black text-2xl text-[#13241b]">Manager Dashboard</h2>
+            <p className="text-xs text-[#607368]">Financial analytics and clinic performance overview.</p>
+          </div>
+          <div className="grid grid-cols-2 gap-6 max-w-xl">
+            <div className="bg-white border border-[#d4e2dc] rounded-2xl p-6 shadow-2xs">
+              <p className="text-xs font-bold text-[#607368] uppercase tracking-wider">Completed Revenue</p>
+              <h3 className="text-3xl font-black text-[#164e43] mt-2">₱{totalRevenue.toLocaleString()}</h3>
             </div>
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label className="block text-xs font-bold text-[#607368] mb-1">Category</label>
-                <select 
-                  value={category} 
-                  onChange={e => setCategory(e.target.value)}
-                  className="w-full border border-[#d4e2dc] rounded-xl p-3 text-xs bg-[#f5f7f6] focus:outline-none"
-                >
-                  <option value="Preventive">Preventive</option>
-                  <option value="Restorative">Restorative</option>
-                  <option value="Surgery">Surgery</option>
-                  <option value="Diagnostics">Diagnostics</option>
-                  <option value="Cosmetic">Cosmetic</option>
-                </select>
+            <div className="bg-white border border-[#d4e2dc] rounded-2xl p-6 shadow-2xs">
+              <p className="text-xs font-bold text-[#607368] uppercase tracking-wider">Active Services</p>
+              <h3 className="text-3xl font-black text-[#13241b] mt-2">{activeServices.length}</h3>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {(currentView === 'services' || !currentView) && (
+        <div className="h-full grid grid-cols-12 gap-6 overflow-hidden">
+          
+          <div className="col-span-4 bg-white border border-[#d4e2dc] rounded-2xl p-6 shadow-2xs overflow-y-auto flex flex-col">
+            <h3 className="font-black text-lg text-[#13241b] mb-1">Add Clinic Service</h3>
+            <p className="text-xs text-[#607368] mb-4">Direct database persistence via Supabase.</p>
+
+            {formError && (
+              <div className="bg-red-50 border border-red-200 text-red-700 text-xs p-3 rounded-xl mb-4 font-bold">
+                ⚠️ {formError}
               </div>
-              <div>
-                <label className="block text-xs font-bold text-[#607368] mb-1">Price (₱)</label>
+            )}
+
+            <form onSubmit={handleAddService} className="space-y-4 flex-1 flex flex-col justify-between">
+              <div className="space-y-4">
+                
+                <div>
+                  <label className="block text-xs font-bold text-[#164e43] mb-1">1. Select Category *</label>
+                  <select 
+                    required 
+                    value={selectedCategory} 
+                    onChange={handleCategoryChange} 
+                    className="w-full border border-[#d4e2dc] rounded-xl p-3 text-xs bg-[#f5f7f6] font-bold text-[#13241b] focus:outline-none focus:border-[#164e43]"
+                  >
+                    <option value="">-- Choose Category First --</option>
+                    {categoriesFromDb.map(cat => (
+                      <option key={cat} value={cat}>{cat}</option>
+                    ))}
+                  </select>
+                </div>
+
+                {selectedCategory && (
+                  <div>
+                    <label className="block text-xs font-bold text-[#164e43] mb-1">2. Select Offered Service *</label>
+                    <select 
+                      required 
+                      value={isCustomService ? 'CUSTOM' : selectedService} 
+                      onChange={handleServiceChange} 
+                      className="w-full border border-[#d4e2dc] rounded-xl p-3 text-xs bg-[#f5f7f6] font-bold text-[#13241b] focus:outline-none focus:border-[#164e43]"
+                    >
+                      <option value="">-- Choose Service Under Category --</option>
+                      {availableServicesInCategory.map(s => (
+                        <option key={s.id} value={s.service_name}>{s.service_name} (₱{s.price})</option>
+                      ))}
+                      <option value="CUSTOM">+ Custom / Unlisted Service</option>
+                    </select>
+                  </div>
+                )}
+
+                {isCustomService && (
+                  <div>
+                    <label className="block text-xs font-bold text-amber-800 mb-1">Enter Custom Service Name *</label>
+                    <input 
+                      type="text" 
+                      required 
+                      value={customServiceName} 
+                      onChange={e => setCustomServiceName(e.target.value)} 
+                      placeholder="e.g. Specialized Laser Scaling" 
+                      className="w-full border border-amber-300 rounded-xl p-3 text-xs bg-amber-50 font-bold text-[#13241b] focus:outline-none focus:border-amber-600" 
+                    />
+                  </div>
+                )}
+
+                <div className="grid grid-cols-2 gap-3 pt-1">
+                  <div>
+                    <label className="block text-xs font-bold text-[#607368] mb-1">Duration (mins)</label>
+                    <input 
+                      type="number" 
+                      required 
+                      value={duration} 
+                      onChange={e => setDuration(e.target.value)} 
+                      className="w-full border border-[#d4e2dc] rounded-xl p-3 text-xs bg-[#f5f7f6] font-bold focus:outline-none focus:border-[#164e43]" 
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-bold text-[#607368] mb-1">Price (₱) *</label>
+                    <input 
+                      type="number" 
+                      required 
+                      value={price} 
+                      onChange={e => setPrice(e.target.value)} 
+                      placeholder="1500" 
+                      className="w-full border border-[#d4e2dc] rounded-xl p-3 text-xs bg-[#f5f7f6] font-bold focus:outline-none focus:border-[#164e43]" 
+                    />
+                  </div>
+                </div>
+
+              </div>
+
+              <button 
+                type="submit" 
+                disabled={!selectedCategory || (!selectedService && !customServiceName) || !price}
+                className="w-full bg-[#164e43] text-white py-3.5 rounded-xl font-bold text-xs shadow-2xs hover:bg-[#0f362e] transition cursor-pointer disabled:opacity-50 mt-4"
+              >
+                + Save Service to Supabase
+              </button>
+            </form>
+          </div>
+
+          <div className="col-span-8 bg-white border border-[#d4e2dc] rounded-2xl p-6 shadow-2xs flex flex-col overflow-hidden">
+            <div className="flex justify-between items-center mb-4">
+              <h3 className="font-black text-lg text-[#13241b]">Manage Services & Pricing</h3>
+              <span className="text-xs bg-[#e3ede6] text-[#164e43] px-3 py-1 rounded-full font-bold">Supabase Connected</span>
+            </div>
+
+            <div className="flex gap-3 mb-4 bg-[#f5f7f6] p-3 rounded-xl border border-[#d4e2dc]">
+              <div className="flex-1">
+                <label className="block text-[10px] font-bold text-[#607368] uppercase mb-1">Search Service</label>
                 <input 
-                  type="number" 
-                  required 
-                  value={price} 
-                  onChange={e => setPrice(e.target.value)} 
-                  placeholder="1500"
-                  className="w-full border border-[#d4e2dc] rounded-xl p-3 text-xs bg-[#f5f7f6] focus:outline-none focus:border-[#164e43]"
+                  type="text"
+                  value={catalogSearchQuery}
+                  onChange={e => setCatalogSearchQuery(e.target.value)}
+                  placeholder="Search by title..."
+                  className="w-full border border-[#d4e2dc] rounded-lg p-2 text-xs bg-white font-bold text-[#13241b] focus:outline-none focus:border-[#164e43]"
                 />
               </div>
+              <div className="flex-1">
+                <label className="block text-[10px] font-bold text-[#607368] uppercase mb-1">Filter by Category</label>
+                <select 
+                  value={catalogFilterCategory} 
+                  onChange={e => setCatalogFilterCategory(e.target.value)}
+                  className="w-full border border-[#d4e2dc] rounded-lg p-2 text-xs bg-white font-bold text-[#13241b] focus:outline-none focus:border-[#164e43]"
+                >
+                  <option value="ALL">All Categories</option>
+                  {categoriesFromDb.map(cat => (
+                    <option key={cat} value={cat}>{cat}</option>
+                  ))}
+                </select>
+              </div>
+              <div className="w-40">
+                <label className="block text-[10px] font-bold text-[#607368] uppercase mb-1">Sort by Price</label>
+                <select 
+                  value={catalogSortPrice} 
+                  onChange={e => setCatalogSortPrice(e.target.value)}
+                  className="w-full border border-[#d4e2dc] rounded-lg p-2 text-xs bg-white font-bold text-[#13241b] focus:outline-none focus:border-[#164e43]"
+                >
+                  <option value="">Default Order</option>
+                  <option value="asc">Low to High</option>
+                  <option value="desc">High to Low</option>
+                </select>
+              </div>
             </div>
-            <button type="submit" className="w-full bg-[#164e43] text-white py-3 rounded-xl font-bold text-xs shadow-2xs hover:bg-[#0f362e] transition cursor-pointer">
-              + Save Service to Catalog
-            </button>
-          </form>
-        </div>
-      </div>
+            
+            <div className="flex-1 overflow-y-auto">
+              <table className="w-full text-left border-collapse">
+                <thead>
+                  <tr className="border-b border-[#d4e2dc] text-[11px] font-bold text-[#607368] uppercase">
+                    <th className="py-3 px-2">Service Title</th>
+                    <th className="py-3 px-2">Category</th>
+                    <th className="py-3 px-2">Duration</th>
+                    <th className="py-3 px-2 text-right">Price (₱)</th>
+                    <th className="py-3 px-2 text-center">Actions</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-[#f0f5f2] text-xs">
+                  {filteredAndSortedServices.map(s => {
+                    const isEditing = editingId === s.id;
+                    
+                    return isEditing ? (
+                      <tr key={s.id} className="bg-[#f0f5f2]">
+                        <td className="py-2 px-2">
+                          <input 
+                            type="text" 
+                            value={editName} 
+                            onChange={e => setEditName(e.target.value)}
+                            className="w-full border border-[#d4e2dc] rounded-lg p-2 text-xs bg-white font-bold"
+                          />
+                        </td>
+                        <td className="py-2 px-2">
+                          <select 
+                            value={editCategory} 
+                            onChange={e => setEditCategory(e.target.value)}
+                            className="border border-[#d4e2dc] rounded-lg p-2 text-xs bg-white"
+                          >
+                            {categoriesFromDb.map(c => (
+                              <option key={c} value={c}>{c}</option>
+                            ))}
+                          </select>
+                        </td>
+                        <td className="py-2 px-2">
+                          <input 
+                            type="number" 
+                            value={editDuration} 
+                            onChange={e => setEditDuration(e.target.value)}
+                            className="w-16 border border-[#d4e2dc] rounded-lg p-2 text-xs bg-white"
+                          />
+                        </td>
+                        <td className="py-2 px-2 text-right">
+                          <input 
+                            type="number" 
+                            value={editPrice} 
+                            onChange={e => setEditPrice(e.target.value)}
+                            className="w-24 border border-[#d4e2dc] rounded-lg p-2 text-xs bg-white text-right font-bold"
+                          />
+                        </td>
+                        <td className="py-2 px-2 text-center space-x-1">
+                          <button 
+                            type="button"
+                            onClick={() => confirmSaveEdit(s.id)}
+                            className="bg-[#164e43] text-white px-2.5 py-1.5 rounded-lg text-xs font-bold hover:bg-[#0f362e] transition cursor-pointer"
+                          >
+                            Save
+                          </button>
+                          <button 
+                            type="button"
+                            onClick={() => setEditingId(null)}
+                            className="bg-gray-200 text-gray-700 px-2.5 py-1.5 rounded-lg text-xs font-bold hover:bg-gray-300 transition cursor-pointer"
+                          >
+                            Cancel
+                          </button>
+                        </td>
+                      </tr>
+                    ) : (
+                      <tr key={s.id} className="hover:bg-[#f8faf9]">
+                        <td className="py-3 px-2 font-bold text-[#13241b]">{s.service_name}</td>
+                        <td className="py-3 px-2">
+                          <span className="bg-[#f0f5f2] border border-[#d4e2dc] text-[#607368] px-2.5 py-0.5 rounded-md font-semibold text-[11px]">
+                            {s.category}
+                          </span>
+                        </td>
+                        <td className="py-3 px-2 text-[#607368]">{s.duration_mins || 30} mins</td>
+                        <td className="py-3 px-2 text-right font-black text-[#164e43]">₱{parseFloat(s.price || 0).toLocaleString()}</td>
+                        <td className="py-3 px-2 text-center space-x-2">
+                          <button 
+                            type="button"
+                            onClick={() => startEditing(s)}
+                            className="bg-[#e3ede6] text-[#164e43] hover:bg-[#164e43] hover:text-white px-3 py-1 rounded-lg font-bold text-xs transition cursor-pointer"
+                          >
+                            Edit
+                          </button>
+                          <button 
+                            type="button"
+                            onClick={() => confirmDelete(s.id)}
+                            className="bg-red-50 text-red-600 hover:bg-red-600 hover:text-white px-3 py-1 rounded-lg font-bold text-xs transition cursor-pointer"
+                          >
+                            Remove
+                          </button>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </div>
 
-      {/* Right Column: Editable Services Table */}
-      <div className="col-span-8 bg-white border border-[#d4e2dc] rounded-2xl p-6 shadow-2xs flex flex-col overflow-hidden">
-        <div className="flex justify-between items-center mb-4">
-          <h3 className="font-black text-lg text-[#13241b]">Manage Services & Pricing</h3>
-          <span className="text-xs bg-[#e3ede6] text-[#164e43] px-3 py-1 rounded-full font-bold">Manager Access</span>
         </div>
-        
-        <div className="flex-1 overflow-y-auto">
-          <table className="w-full text-left border-collapse">
-            <thead>
-              <tr className="border-b border-[#d4e2dc] text-[11px] font-bold text-[#607368] uppercase">
-                <th className="py-3 px-2">Service Title</th>
-                <th className="py-3 px-2">Category</th>
-                <th className="py-3 px-2">Duration (mins)</th>
-                <th className="py-3 px-2 text-right">Price (₱)</th>
-                <th className="py-3 px-2 text-center">Actions</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-[#f0f5f2] text-xs">
-              {services.map(s => {
-                const isEditing = editingId === s.id;
-                
-                return isEditing ? (
-                  /* Edit Row Form */
-                  <tr key={s.id} className="bg-[#f0f5f2]">
-                    <td className="py-2 px-2">
-                      <input 
-                        type="text" 
-                        value={editName} 
-                        onChange={e => setEditName(e.target.value)}
-                        className="w-full border border-[#d4e2dc] rounded-lg p-2 text-xs bg-white font-bold"
-                      />
-                    </td>
-                    <td className="py-2 px-2">
-                      <select 
-                        value={editCategory} 
-                        onChange={e => setEditCategory(e.target.value)}
-                        className="border border-[#d4e2dc] rounded-lg p-2 text-xs bg-white"
-                      >
-                        <option value="Preventive">Preventive</option>
-                        <option value="Restorative">Restorative</option>
-                        <option value="Surgery">Surgery</option>
-                        <option value="Diagnostics">Diagnostics</option>
-                        <option value="Cosmetic">Cosmetic</option>
-                      </select>
-                    </td>
-                    <td className="py-2 px-2">
-                      <input 
-                        type="number" 
-                        value={editDuration} 
-                        onChange={e => setEditDuration(e.target.value)}
-                        className="w-20 border border-[#d4e2dc] rounded-lg p-2 text-xs bg-white"
-                      />
-                    </td>
-                    <td className="py-2 px-2 text-right">
-                      <input 
-                        type="number" 
-                        value={editPrice} 
-                        onChange={e => setEditPrice(e.target.value)}
-                        className="w-24 border border-[#d4e2dc] rounded-lg p-2 text-xs bg-white text-right font-bold"
-                      />
-                    </td>
-                    <td className="py-2 px-2 text-center space-x-2">
-                      <button 
-                        onClick={() => handleSaveEdit(s.id)}
-                        className="bg-[#164e43] text-white px-3 py-1.5 rounded-lg text-xs font-bold hover:bg-[#0f362e] transition cursor-pointer"
-                      >
-                        Save
-                      </button>
-                      <button 
-                        onClick={() => setEditingId(null)}
-                        className="bg-gray-200 text-gray-700 px-3 py-1.5 rounded-lg text-xs font-bold hover:bg-gray-300 transition cursor-pointer"
-                      >
-                        Cancel
-                      </button>
-                    </td>
-                  </tr>
-                ) : (
-                  /* Standard Read-Only Row */
-                  <tr key={s.id} className="hover:bg-[#f8faf9]">
-                    <td className="py-3 px-2 font-bold text-[#13241b]">{s.service_name || s.name}</td>
-                    <td className="py-3 px-2">
-                      <span className="bg-[#f0f5f2] border border-[#d4e2dc] text-[#607368] px-2.5 py-0.5 rounded-md font-semibold text-[11px]">
-                        {s.category}
-                      </span>
-                    </td>
-                    <td className="py-3 px-2 text-[#607368]">{s.duration_mins} mins</td>
-                    <td className="py-3 px-2 text-right font-black text-[#164e43]">₱{parseFloat(s.price || 0).toLocaleString()}</td>
-                    <td className="py-3 px-2 text-center space-x-2">
-                      <button 
-                        onClick={() => startEditing(s)}
-                        className="text-[#164e43] hover:underline font-bold text-xs cursor-pointer"
-                      >
-                        Edit
-                      </button>
-                      <button 
-                        onClick={() => handleDelete(s.id)}
-                        className="text-red-500 hover:underline font-bold text-xs cursor-pointer"
-                      >
-                        Delete
-                      </button>
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
-      </div>
+      )}
 
     </div>
   );
