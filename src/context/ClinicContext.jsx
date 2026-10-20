@@ -6,20 +6,23 @@ export const ClinicContext = createContext();
 export function ClinicProvider({ children }) {
   const [appointments, setAppointments] = useState([]);
   const [services, setServices] = useState([]);
+  const [dentists, setDentists] = useState([]);
   const [loading, setLoading] = useState(true);
 
   const refreshData = async () => {
     try {
       setLoading(true);
-      const [apptsRes, servRes] = await Promise.all([
+      const [apptsRes, servRes, staffRes] = await Promise.all([
         supabase.from('appointments').select('*').order('appointment_date', { ascending: true }),
-        supabase.from('services').select('*').eq('is_active', true)
+        supabase.from('services').select('*').eq('is_active', true),
+        supabase.from('staff_users').select('*').eq('role', 'dentist')
       ]);
 
       if (apptsRes.data) setAppointments(apptsRes.data);
       if (servRes.data) setServices(servRes.data);
+      if (staffRes.data) setDentists(staffRes.data);
     } catch (err) {
-      console.error('Error fetching data from Supabase:', err);
+      console.error('Error fetching data:', err);
     } finally {
       setLoading(false);
     }
@@ -54,40 +57,17 @@ export function ClinicProvider({ children }) {
     return data || [];
   };
 
-  const addService = async (serviceData) => {
-    const { error } = await supabase.from('services').insert([serviceData]);
-    if (!error) await refreshData();
-  };
-
-  const updateService = async (id, updatedFields) => {
-    const { error } = await supabase
-      .from('services')
-      .update(updatedFields)
-      .eq('id', id);
-    if (!error) await refreshData();
-  };
-
-  const deleteService = async (id) => {
-    const { error } = await supabase
-      .from('services')
-      .delete()
-      .eq('id', id);
-    if (!error) await refreshData();
-  };
-
   return (
     <ClinicContext.Provider value={{
       appointments,
       services,
+      dentists,
       loading,
       refreshData,
       createAppointment,
       updateAppointmentStatus,
       saveToothChart,
-      fetchPatientChart,
-      addService,
-      updateService,
-      deleteService
+      fetchPatientChart
     }}>
       {children}
     </ClinicContext.Provider>

@@ -15,20 +15,21 @@ function DentalPortalApp() {
     return savedUser ? JSON.parse(savedUser) : null;
   });
 
+  // Active navigation view for users with multiple tabs (like Dentist)
+  const [currentView, setCurrentView] = useState('dashboard');
+
   // Handle sign-in callback
   const handleLoginSuccess = (role, fullName, id) => {
     let mappedRole = (role || 'patient').toLowerCase();
-    
-    // Explicit override for pre-seeded IDs
     if (id === 1) mappedRole = 'manager';
     else if (id === 2) mappedRole = 'dentist';
     else if (id === 3) mappedRole = 'assistant';
     else if (id === 4) mappedRole = 'patient';
 
     const userData = { id, role: mappedRole, name: fullName };
-
     localStorage.setItem('dental_portal_user', JSON.stringify(userData));
     setAuthenticatedUser(userData);
+    setCurrentView('dashboard');
   };
 
   // Handle logout with confirmation prompt
@@ -40,78 +41,124 @@ function DentalPortalApp() {
     }
   };
 
-  // 1. Unauthenticated Index View -> Render Login/Register Form
+  // 1. Unauthenticated Index View -> Render Login Form
   if (!authenticatedUser) {
     return (
       <div className="h-screen w-screen bg-[#f5f7f6] flex flex-col overflow-hidden font-sans">
-        <main className="flex-1 w-full flex items-center justify-center p-6">
-          <Login onLogin={handleLoginSuccess} />
-        </main>
+       {/* 3. Main System Workspace Viewport */}
+      <main className="flex-1 h-full overflow-hidden p-8 flex flex-col">
+        {isManager && <ManagerModule {...contextData} currentView={currentView} />}
+        {isDentist && (
+          <DentistModule 
+            {...contextData} 
+            updateAppointmentStatus={contextData.updateAppointmentStatus} 
+            currentView={currentView} 
+            user={authenticatedUser} 
+          />
+        )}
+        {isAssistant && <AssistantModule {...contextData} />}
+        {isPatient && <PatientModule {...contextData} currentView={currentView} user={authenticatedUser} />}
+      </main>
       </div>
     );
   }
 
-  // Determine user workspace title badge
   const isManager = authenticatedUser.id === 1 || authenticatedUser.role === 'manager';
   const isDentist = authenticatedUser.id === 2 || authenticatedUser.role === 'dentist';
   const isAssistant = authenticatedUser.id === 3 || authenticatedUser.role === 'assistant';
   const isPatient = authenticatedUser.id === 4 || authenticatedUser.role === 'patient';
 
-  // 2. Authenticated View -> Render Workspace Header and Dedicated Module
   return (
-    <div className="h-screen w-screen bg-[#f5f7f6] text-[#13241b] flex flex-col overflow-hidden font-sans">
+    <div className="h-screen w-screen bg-[#f5f7f6] text-[#13241b] flex overflow-hidden font-sans">
       
-      {/* 1080p Widescreen Header */}
-      <header className="h-16 bg-white border-b border-[#d4e2dc] px-8 flex justify-between items-center shrink-0 z-10 shadow-2xs">
-        
-        {/* Brand Header */}
-        <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-xl bg-[#164e43] text-white flex items-center justify-center font-bold text-lg shadow-2xs">
-            🦷
+      {/* 2. Global Persistent Left Sidebar Navigation */}
+      <aside className="w-64 bg-white border-r border-[#d4e2dc] flex flex-col justify-between p-6 shrink-0 shadow-2xs z-10">
+        <div>
+          {/* Brand Logo & Title */}
+          <div className="flex items-center gap-3 mb-8 pb-6 border-b border-[#d4e2dc]">
+            <div className="w-10 h-10 rounded-xl bg-[#164e43] text-white flex items-center justify-center font-bold text-lg shadow-2xs">
+              🦷
+            </div>
+            <div>
+              <h1 className="font-black text-sm leading-tight text-[#13241b]">
+                Dental Care Portal
+              </h1>
+              <p className="text-[10px] text-[#607368] font-bold uppercase tracking-wider">
+                System Navigation
+              </p>
+            </div>
           </div>
+
+          {/* Navigation Links based on Role */}
+          <nav className="space-y-2">
+            {isManager && (
+              <>
+                <button onClick={() => setCurrentView('dashboard')} className={`w-full text-left px-4 py-3 rounded-xl font-bold text-xs transition cursor-pointer ${currentView === 'dashboard' ? 'bg-[#164e43] text-white' : 'text-[#607368] hover:bg-[#f5f7f6]'}`}>
+                  📊 Manager Dashboard
+                </button>
+                <button onClick={() => setCurrentView('services')} className={`w-full text-left px-4 py-3 rounded-xl font-bold text-xs transition cursor-pointer ${currentView === 'services' ? 'bg-[#164e43] text-white' : 'text-[#607368] hover:bg-[#f5f7f6]'}`}>
+                  ⚙️ Services Catalog
+                </button>
+              </>
+            )}
+
+            {isDentist &&  (
+              <>
+                <button onClick={() => setCurrentView('dashboard')} className={`w-full text-left px-4 py-3 rounded-xl font-bold text-xs transition cursor-pointer ${currentView === 'dashboard' ? 'bg-[#164e43] text-white' : 'text-[#607368] hover:bg-[#f5f7f6]'}`}>
+                  📊 Dashboard
+                </button>
+                <button onClick={() => setCurrentView('logs')} className={`w-full text-left px-4 py-3 rounded-xl font-bold text-xs transition cursor-pointer ${currentView === 'logs' ? 'bg-[#164e43] text-white' : 'text-[#607368] hover:bg-[#f5f7f6]'}`}>
+                  📋 Patient Logs
+                </button>
+                <button onClick={() => setCurrentView('charting')} className={`w-full text-left px-4 py-3 rounded-xl font-bold text-xs transition cursor-pointer ${currentView === 'charting' ? 'bg-[#164e43] text-white' : 'text-[#607368] hover:bg-[#f5f7f6]'}`}>
+                  🦷 Dental Charting
+                </button>
+                <button onClick={() => setCurrentView('profile')} className={`w-full text-left px-4 py-3 rounded-xl font-bold text-xs transition cursor-pointer ${currentView === 'profile' ? 'bg-[#164e43] text-white' : 'text-[#607368] hover:bg-[#f5f7f6]'}`}>
+                  👤 Profile
+                </button>
+              </>
+            )}
+
+            {isAssistant && (
+              <button onClick={() => setCurrentView('queue')} className="w-full text-left px-4 py-3 rounded-xl font-bold text-xs bg-[#164e43] text-white">
+                📋 Patient Queue & Check-in
+              </button>
+            )}
+
+            {isPatient && (
+              <>
+                <button onClick={() => setCurrentView('book')} className={`w-full text-left px-4 py-3 rounded-xl font-bold text-xs transition cursor-pointer ${currentView === 'book' ? 'bg-[#164e43] text-white' : 'text-[#607368] hover:bg-[#f5f7f6]'}`}>
+                  📅 Book Appointment
+                </button>
+                <button onClick={() => setCurrentView('history')} className={`w-full text-left px-4 py-3 rounded-xl font-bold text-xs transition cursor-pointer ${currentView === 'history' ? 'bg-[#164e43] text-white' : 'text-[#607368] hover:bg-[#f5f7f6]'}`}>
+                  🗂️ My Records
+                </button>
+              </>
+            )}
+          </nav>
+        </div>
+
+        {/* User Session & Logout Footer */}
+        <div className="border-t border-[#d4e2dc] pt-4 space-y-3">
           <div>
-            <h1 className="font-black text-base leading-tight tracking-tight text-[#13241b]">
-              Dental Care Portal
-            </h1>
-            <p className="text-[11px] text-[#607368] font-bold uppercase tracking-wider">
-              Workspace · {authenticatedUser.name}
-            </p>
+            <span className="text-[10px] text-[#607368] font-bold uppercase tracking-wider block">Logged in as</span>
+            <span className="font-black text-xs text-[#13241b] truncate block">{authenticatedUser.name}</span>
           </div>
+          <button 
+            onClick={handleLogout}
+            className="w-full text-xs font-bold text-red-600 hover:text-red-700 bg-red-50 hover:bg-red-100 border border-red-200 py-2.5 rounded-xl transition cursor-pointer"
+          >
+            Sign Out
+          </button>
         </div>
+      </aside>
 
-        {/* Workspace Badge & Logout Controls */}
-        <div className="flex items-center gap-4">
-          <div className="bg-[#e3ede6] border border-[#d4e2dc] px-4 py-1.5 rounded-xl flex items-center gap-2">
-            <span className="w-2 h-2 rounded-full bg-[#164e43] animate-pulse"></span>
-            <span className="text-xs font-bold text-[#164e43]">
-              {isManager && 'Clinic Manager Workspace'}
-              {isDentist && 'Dentist Charting Workspace'}
-              {isAssistant && 'Dental Assistant Queue'}
-              {isPatient && 'Patient Self-Service Portal'}
-            </span>
-          </div>
-
-          <div className="flex items-center gap-3 pl-3 border-l border-[#d4e2dc]">
-            <span className="text-xs font-bold text-[#13241b]">
-              👤 {authenticatedUser.name}
-            </span>
-            <button 
-              onClick={handleLogout}
-              className="text-xs font-bold text-red-600 hover:text-red-700 bg-red-50 hover:bg-red-100 border border-red-200 px-3.5 py-1.5 rounded-xl transition cursor-pointer"
-            >
-              Sign Out
-            </button>
-          </div>
-        </div>
-
-      </header>
-
-      {/* Main Viewport Content */}
-      <main className="flex-1 w-full max-w-[1840px] mx-auto p-6 overflow-hidden">
-        {isManager && <ManagerModule {...contextData} />}
-        {isDentist && <DentistModule {...contextData} />}
+      {/* 3. Main System Workspace Viewport */}
+      <main className="flex-1 h-full overflow-hidden p-8 flex flex-col">
+        {isManager && <ManagerModule {...contextData} currentView={currentView} />}
+        {isDentist && <DentistModule {...contextData} currentView={currentView} user={authenticatedUser} />}
         {isAssistant && <AssistantModule {...contextData} />}
-        {isPatient && <PatientModule {...contextData} user={authenticatedUser} />}
+        {isPatient && <PatientModule {...contextData} currentView={currentView} user={authenticatedUser} />}
       </main>
 
     </div>
