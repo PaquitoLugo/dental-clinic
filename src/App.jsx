@@ -9,19 +9,21 @@ import Login from './views/login';
 function DentalPortalApp() {
   const contextData = useContext(ClinicContext);
   
-  // Initialize user session from localStorage
+  // Restore authenticated user session
   const [authenticatedUser, setAuthenticatedUser] = useState(() => {
     const savedUser = localStorage.getItem('dental_portal_user');
     return savedUser ? JSON.parse(savedUser) : null;
   });
 
-  // Called upon successful login from Login.jsx
+  // Handle sign-in callback
   const handleLoginSuccess = (role, fullName, id) => {
-    let mappedRole = 'patient';
-    if (id === 1 || role === 'manager') mappedRole = 'manager';
-    else if (id === 2 || role === 'dentist') mappedRole = 'dentist';
-    else if (id === 3 || role === 'assistant') mappedRole = 'assistant';
-    else if (id === 4 || role === 'patient') mappedRole = 'patient';
+    let mappedRole = (role || 'patient').toLowerCase();
+    
+    // Explicit override for pre-seeded IDs
+    if (id === 1) mappedRole = 'manager';
+    else if (id === 2) mappedRole = 'dentist';
+    else if (id === 3) mappedRole = 'assistant';
+    else if (id === 4) mappedRole = 'patient';
 
     const userData = { id, role: mappedRole, name: fullName };
 
@@ -29,7 +31,7 @@ function DentalPortalApp() {
     setAuthenticatedUser(userData);
   };
 
-  // Logout session with confirmation prompt
+  // Handle logout with confirmation prompt
   const handleLogout = () => {
     const confirmed = window.confirm('Are you sure you want to sign out of your workspace?');
     if (confirmed) {
@@ -38,7 +40,7 @@ function DentalPortalApp() {
     }
   };
 
-  // If NOT logged in, render the Login/Registration Index View
+  // 1. Unauthenticated Index View -> Render Login/Register Form
   if (!authenticatedUser) {
     return (
       <div className="h-screen w-screen bg-[#f5f7f6] flex flex-col overflow-hidden font-sans">
@@ -49,14 +51,20 @@ function DentalPortalApp() {
     );
   }
 
-  // If LOGGED IN, render the Widescreen Header and their Authority Module
+  // Determine user workspace title badge
+  const isManager = authenticatedUser.id === 1 || authenticatedUser.role === 'manager';
+  const isDentist = authenticatedUser.id === 2 || authenticatedUser.role === 'dentist';
+  const isAssistant = authenticatedUser.id === 3 || authenticatedUser.role === 'assistant';
+  const isPatient = authenticatedUser.id === 4 || authenticatedUser.role === 'patient';
+
+  // 2. Authenticated View -> Render Workspace Header and Dedicated Module
   return (
     <div className="h-screen w-screen bg-[#f5f7f6] text-[#13241b] flex flex-col overflow-hidden font-sans">
       
-      {/* 1080p Widescreen Header Bar */}
+      {/* 1080p Widescreen Header */}
       <header className="h-16 bg-white border-b border-[#d4e2dc] px-8 flex justify-between items-center shrink-0 z-10 shadow-2xs">
         
-        {/* Brand Title */}
+        {/* Brand Header */}
         <div className="flex items-center gap-3">
           <div className="w-10 h-10 rounded-xl bg-[#164e43] text-white flex items-center justify-center font-bold text-lg shadow-2xs">
             🦷
@@ -71,15 +79,15 @@ function DentalPortalApp() {
           </div>
         </div>
 
-        {/* User Info & Sign Out */}
+        {/* Workspace Badge & Logout Controls */}
         <div className="flex items-center gap-4">
           <div className="bg-[#e3ede6] border border-[#d4e2dc] px-4 py-1.5 rounded-xl flex items-center gap-2">
             <span className="w-2 h-2 rounded-full bg-[#164e43] animate-pulse"></span>
             <span className="text-xs font-bold text-[#164e43]">
-              {authenticatedUser.id === 1 && 'Clinic Manager Workspace'}
-              {authenticatedUser.id === 2 && 'Dentist Charting Workspace'}
-              {authenticatedUser.id === 3 && 'Dental Assistant Queue'}
-              {authenticatedUser.id === 4 && 'Patient Portal Workspace'}
+              {isManager && 'Clinic Manager Workspace'}
+              {isDentist && 'Dentist Charting Workspace'}
+              {isAssistant && 'Dental Assistant Queue'}
+              {isPatient && 'Patient Self-Service Portal'}
             </span>
           </div>
 
@@ -98,12 +106,12 @@ function DentalPortalApp() {
 
       </header>
 
-      {/* Main 1080p Content Viewport (Strict Authority Isolation) */}
+      {/* Main Viewport Content */}
       <main className="flex-1 w-full max-w-[1840px] mx-auto p-6 overflow-hidden">
-        {authenticatedUser.id === 1 && <ManagerModule {...contextData} />}
-        {authenticatedUser.id === 2 && <DentistModule {...contextData} />}
-        {authenticatedUser.id === 3 && <AssistantModule {...contextData} />}
-        {authenticatedUser.id === 4 && <PatientModule {...contextData} />}
+        {isManager && <ManagerModule {...contextData} />}
+        {isDentist && <DentistModule {...contextData} />}
+        {isAssistant && <AssistantModule {...contextData} />}
+        {isPatient && <PatientModule {...contextData} user={authenticatedUser} />}
       </main>
 
     </div>
