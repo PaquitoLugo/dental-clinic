@@ -116,11 +116,50 @@ function DentalPortalApp() {
 
             {isPatient && (
               <>
-                <button onClick={() => setCurrentView('book')} className={`w-full text-left px-4 py-3 rounded-xl font-bold text-xs transition cursor-pointer ${currentView === 'book' ? 'bg-[#164e43] text-white' : 'text-[#607368] hover:bg-[#f5f7f6]'}`}>
-                  📅 Book Appointment
+                <button
+                  onClick={() => setCurrentView('book')}
+                  className={`w-full flex items-center px-4 py-3 rounded-xl font-bold text-xs transition cursor-pointer ${
+                    currentView === 'book'
+                      ? 'bg-[#164e43] text-white'
+                      : 'text-[#607368] hover:bg-[#f5f7f6]'
+                  }`}
+                >
+                  <img
+                    src="sidebar-icons/calendar-icon.png"
+                    alt=""
+                    className={`appointment-icon ${currentView === 'book' ? 'icon-white' : ''}`}
+                  />
+                  <span>Book Appointment</span>
                 </button>
-                <button onClick={() => setCurrentView('history')} className={`w-full text-left px-4 py-3 rounded-xl font-bold text-xs transition cursor-pointer ${currentView === 'history' ? 'bg-[#164e43] text-white' : 'text-[#607368] hover:bg-[#f5f7f6]'}`}>
-                  🗂️ My Records
+                <button
+                  onClick={() => setCurrentView('history')}
+                  className={`w-full flex items-center px-4 py-3 rounded-xl font-bold text-xs transition cursor-pointer ${
+                    currentView === 'history'
+                      ? 'bg-[#164e43] text-white'
+                      : 'text-[#607368] hover:bg-[#f5f7f6]'
+                  }`}
+                >
+                  <img
+                    src="sidebar-icons/folder-icon.png"
+                    alt=""
+                    className={`appointment-icon ${currentView === 'history' ? 'icon-white' : ''}`}
+                  />
+                  <span>My Records</span>
+                </button>
+                <button
+                  onClick={() => setCurrentView('services')}
+                  className={`w-full flex items-center px-4 py-3 rounded-xl font-bold text-xs transition cursor-pointer ${
+                    currentView === 'services'
+                      ? 'bg-[#164e43] text-white'
+                      : 'text-[#607368] hover:bg-[#f5f7f6]'
+                  }`}
+                >
+                  <img
+                    src="/sidebar-icons/Services-tab-icon.png"
+                    alt=""
+                    className={`patient-services-nav-icon ${currentView === 'services' ? 'icon-white' : ''}`}
+                  />
+                  <span>Services</span>
                 </button>
               </>
             )}
@@ -154,7 +193,7 @@ function DentalPortalApp() {
           />
         )}
         {isAssistant && <AssistantModule {...contextData} />}
-        {isPatient && <PatientModule {...contextData} currentView={currentView} user={authenticatedUser} />}
+        {isPatient && <PatientModule {...contextData} currentView={currentView} onViewChange={setCurrentView} user={authenticatedUser} />}
       </main>
 
     </div>

@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 
-export default function PatientModule({ services, dentists, createAppointment, appointments, user, currentView }) {
+export default function PatientModule({ services, dentists, createAppointment, appointments, user, currentView, onViewChange }) {
   const [patientName, setPatientName] = useState('');
   const [contactNumber, setContactNumber] = useState('');
   const [email, setEmail] = useState('');
@@ -14,6 +14,28 @@ export default function PatientModule({ services, dentists, createAppointment, a
   const [appointmentTime, setAppointmentTime] = useState('');
   const [notes, setNotes] = useState('');
   const [successMsg, setSuccessMsg] = useState(false);
+  const [serviceSearch, setServiceSearch] = useState('');
+  const [serviceCategory, setServiceCategory] = useState('All services');
+
+  const mockServices = [
+    {
+      name: 'Simple Tooth Extraction',
+      category: 'Surgery',
+      description: 'Removal of a visible, fully erupted tooth under local anesthesia.',
+      price: '₱300'
+    },
+    {
+      name: 'Wisdom Tooth Removal',
+      category: 'Surgery',
+      description: 'Surgical removal of impacted or partially erupted third molars.',
+      price: '₱[PRICE]'
+    }
+  ];
+
+  const visibleServices = mockServices.filter(service =>
+    (serviceCategory === 'All services' || service.category === serviceCategory) &&
+    service.name.toLowerCase().includes(serviceSearch.toLowerCase())
+  );
 
   const todayDateStr = new Date().toISOString().split('T')[0];
 
@@ -61,6 +83,58 @@ export default function PatientModule({ services, dentists, createAppointment, a
 
   return (
     <div className="h-full w-full flex flex-col overflow-hidden">
+      {currentView === 'services' && (
+        <section className="services-page">
+          <header className="services-header">
+            <div>
+              <h2>Our Dental Services</h2>
+              <p>Browse the catalog by category, then book the service you need.</p>
+            </div>
+            <label className="services-search">
+              <span aria-hidden="true">⌕</span>
+              <input
+                type="search"
+                placeholder="Search services"
+                value={serviceSearch}
+                onChange={event => setServiceSearch(event.target.value)}
+                aria-label="Search services"
+              />
+            </label>
+          </header>
+
+          <div className="services-filters" aria-label="Filter services by category">
+            {['All services', 'Preventive', 'Restorative', 'Surgery', 'Orthodontics', 'Cosmetic'].map(category => (
+              <button
+                key={category}
+                type="button"
+                onClick={() => setServiceCategory(category)}
+                className={serviceCategory === category ? 'active' : ''}
+              >
+                {category}
+              </button>
+            ))}
+          </div>
+
+          <div className="services-grid">
+            {visibleServices.map(service => (
+              <article className="service-card" key={service.name}>
+                <span className="service-category">{service.category}</span>
+                <h3>{service.name}</h3>
+                <p className="service-description">{service.description}</p>
+                <footer>
+                  <div>
+                    <span className="starting-label">Starting at</span>
+                    <strong>{service.price}</strong>
+                  </div>
+                  <button type="button" onClick={() => onViewChange('book')}>Book this service</button>
+                </footer>
+              </article>
+            ))}
+            {visibleServices.length === 0 && <p className="services-empty">No services match your search.</p>}
+          </div>
+        </section>
+      )}
+
       {currentView === 'book' && (
         <div className="h-full grid grid-cols-12 gap-6 overflow-hidden">
           <div className="col-span-6 bg-white border border-[#d4e2dc] rounded-2xl p-6 shadow-2xs overflow-y-auto">
