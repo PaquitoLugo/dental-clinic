@@ -12,7 +12,12 @@ const MONTHS = [
 ];
 
 const PASSWORD_REGEX = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[^A-Za-z0-9]).{8,}$/;
-const NAME_REGEX = /^[A-Za-z'-]+$/;
+const NAME_REGEX = /^[\p{L}]+(?:[ '-][\p{L}]+)*$/u;
+const USERNAME_REGEX = /^[A-Za-z0-9._]+$/;
+const MAX_NAME_LENGTH = 50;
+const MIN_USERNAME_LENGTH = 3;
+const MAX_USERNAME_LENGTH = 30;
+const MAX_STREET_LENGTH = 100;
 
 const BIRTH_YEAR_OPTIONS = Array.from({ length: 120 }, (_, i) => MAX_YEAR - i);
 const DAY_OPTIONS = Array.from({ length: 31 }, (_, i) => i + 1);
@@ -41,7 +46,8 @@ function isAllowedEmail(email) {
 function validateName(value, label) {
   const trimmed = value.trim();
   if (!trimmed) return `${label} is required.`;
-  if (trimmed.length > 50) return `${label} must be 50 characters or fewer.`;
+  if (trimmed.length > MAX_NAME_LENGTH) return `${label} must be ${MAX_NAME_LENGTH} characters or fewer.`;
+  if (!NAME_REGEX.test(trimmed)) return `${label} can only contain letters, spaces, hyphens, and apostrophes.`;
  
   return null;
 }
@@ -60,7 +66,14 @@ function validate(f, resetBirthdate, emailDomainStatus) {
     if (middleNameErr) e.middleName = middleNameErr;
   }
 
-  if (!f.username.trim()) e.username = "Username is required.";
+  const username = f.username.trim();
+  if (!username) {
+    e.username = "Username is required.";
+  } else if (username.length < MIN_USERNAME_LENGTH || username.length > MAX_USERNAME_LENGTH) {
+    e.username = `Username must be between ${MIN_USERNAME_LENGTH} and ${MAX_USERNAME_LENGTH} characters.`;
+  } else if (!USERNAME_REGEX.test(username)) {
+    e.username = "Username can only contain letters, numbers, periods, and underscores.";
+  }
 
   if (!f.email.trim()) {
     e.email = "Email is required.";
@@ -104,7 +117,11 @@ function validate(f, resetBirthdate, emailDomainStatus) {
     }
   }
 
-  if (!f.street.trim()) e.street = "No. / Block is required.";
+  if (!f.street.trim()) {
+    e.street = "No. / Block is required.";
+  } else if (f.street.trim().length > MAX_STREET_LENGTH) {
+    e.street = `No. / Block must be ${MAX_STREET_LENGTH} characters or fewer.`;
+  }
   if (!f.regionCode) e.regionCode = "Select a region.";
   if (!f.cityCode) e.cityCode = "Select a city.";
   if (!f.barangayCode) e.barangayCode = "Select a barangay.";
