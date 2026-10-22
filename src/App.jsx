@@ -5,56 +5,17 @@ import AssistantModule from './views/AssistantModule';
 import DentistModule from './views/DentistModule';
 import ManagerModule from './views/ManagerModule';
 import Login from './views/login';
+import PatientPortal from './views/patientPortal';
+import AppointmentRegistrationWizard from './views/AppointmentRegistrationWizard';
 
-function DentalPortalApp() {
+function MainWorkspace({ authenticatedUser, handleLogout }) {
   const contextData = useContext(ClinicContext);
   
-  // Restore authenticated user session
-  const [authenticatedUser, setAuthenticatedUser] = useState(() => {
-    const savedUser = localStorage.getItem('dental_portal_user');
-    return savedUser ? JSON.parse(savedUser) : null;
-  });
-
-  // Active navigation view for users with multiple tabs (like Dentist)
   const [currentView, setCurrentView] = useState(() =>
     authenticatedUser && (authenticatedUser.id === 4 || authenticatedUser.role === 'patient')
       ? 'services'
       : 'dashboard'
   );
-
-  // Handle sign-in callback
-  const handleLoginSuccess = (role, fullName, id) => {
-    let mappedRole = (role || 'patient').toLowerCase();
-    if (id === 1) mappedRole = 'manager';
-    else if (id === 2) mappedRole = 'dentist';
-    else if (id === 3) mappedRole = 'assistant';
-    else if (id === 4) mappedRole = 'patient';
-
-    const userData = { id, role: mappedRole, name: fullName };
-    localStorage.setItem('dental_portal_user', JSON.stringify(userData));
-    setAuthenticatedUser(userData);
-    setCurrentView(mappedRole === 'patient' ? 'services' : 'dashboard');
-  };
-
-  // Handle logout with confirmation prompt
-  const handleLogout = () => {
-    const confirmed = window.confirm('Are you sure you want to sign out of your workspace?');
-    if (confirmed) {
-      localStorage.removeItem('dental_portal_user');
-      setAuthenticatedUser(null);
-    }
-  };
-
-  // 1. Unauthenticated Index View -> Render Login Form
-  if (!authenticatedUser) {
-    return (
-      <div className="h-screen w-screen bg-[#f5f7f6] flex flex-col overflow-hidden font-sans">
-        <main className="flex-1 w-full flex items-center justify-center p-6">
-          <Login onLogin={handleLoginSuccess} />
-        </main>
-      </div>
-    );
-  }
 
   const isManager = authenticatedUser.id === 1 || authenticatedUser.role === 'manager';
   const isDentist = authenticatedUser.id === 2 || authenticatedUser.role === 'dentist';
@@ -63,18 +24,15 @@ function DentalPortalApp() {
 
   return (
     <div className="h-screen w-screen bg-[#f5f7f6] text-[#13241b] flex overflow-hidden font-sans">
-      
-      {/* 2. Global Persistent Left Sidebar Navigation */}
       <aside className="w-64 bg-white border-r border-[#d4e2dc] flex flex-col justify-between p-6 shrink-0 shadow-2xs z-10">
         <div>
-          {/* Brand Logo & Title */}
           <div className="flex items-center gap-3 mb-8 pb-6 border-b border-[#d4e2dc]">
             <div className="w-10 h-10 rounded-xl bg-[#164e43] text-white flex items-center justify-center font-bold text-lg shadow-2xs">
               🦷
             </div>
             <div>
               <h1 className="font-black text-sm leading-tight text-[#13241b]">
-                Dental Care Portal
+                Dental Clinic Portal
               </h1>
               <p className="text-[10px] text-[#607368] font-bold uppercase tracking-wider">
                 System Navigation
@@ -82,20 +40,31 @@ function DentalPortalApp() {
             </div>
           </div>
 
-          {/* Navigation Links based on Role */}
           <nav className="flex flex-col gap-2">
             {isManager && (
               <>
-                <button onClick={() => setCurrentView('dashboard')} className={`w-full flex items-center px-4 py-3 rounded-xl font-bold text-xs transition cursor-pointer ${currentView === 'dashboard' ? 'bg-[#164e43] text-white' : 'text-[#607368] hover:bg-[#f5f7f6]'}`}>
-                  <img src="/sidebar-icons/dashboard-icon.png" alt="" className={`dashboard-icon ${currentView === 'dashboard' ? 'icon-white' : ''}`} />
+                <button 
+                  onClick={() => setCurrentView('dashboard')} 
+                  className={`w-full flex items-center px-4 py-3 rounded-xl font-bold text-xs transition cursor-pointer ${
+                    currentView === 'dashboard' ? 'bg-[#164e43] text-white' : 'text-[#607368] hover:bg-[#f5f7f6]'
+                  }`}
+                >
                   <span>Manager Dashboard</span>
                 </button>
-                <button onClick={() => setCurrentView('calendar')} className={`w-full flex items-center px-4 py-3 rounded-xl font-bold text-xs transition cursor-pointer ${currentView === 'calendar' ? 'bg-[#164e43] text-white' : 'text-[#607368] hover:bg-[#f5f7f6]'}`}>
-                  <img src="/sidebar-icons/calendar-icon.png" alt="" className={`appointment-icon ${currentView === 'calendar' ? 'icon-white' : ''}`} />
+                <button 
+                  onClick={() => setCurrentView('calendar')} 
+                  className={`w-full flex items-center px-4 py-3 rounded-xl font-bold text-xs transition cursor-pointer ${
+                    currentView === 'calendar' ? 'bg-[#164e43] text-white' : 'text-[#607368] hover:bg-[#f5f7f6]'
+                  }`}
+                >
                   <span>Master calendar</span>
                 </button>
-                <button onClick={() => setCurrentView('services')} className={`w-full flex items-center px-4 py-3 rounded-xl font-bold text-xs transition cursor-pointer ${currentView === 'services' ? 'bg-[#164e43] text-white' : 'text-[#607368] hover:bg-[#f5f7f6]'}`}>
-                  <img src="/sidebar-icons/services-catalog.png" alt="" className={`services-catalog-icon ${currentView === 'services' ? 'icon-white' : ''}`} />
+                <button 
+                  onClick={() => setCurrentView('services')} 
+                  className={`w-full flex items-center px-4 py-3 rounded-xl font-bold text-xs transition cursor-pointer ${
+                    currentView === 'services' ? 'bg-[#164e43] text-white' : 'text-[#607368] hover:bg-[#f5f7f6]'
+                  }`}
+                >
                   <span>Services Catalog</span>
                 </button>
               </>
@@ -103,23 +72,46 @@ function DentalPortalApp() {
 
             {isDentist && (
               <>
-                <button onClick={() => setCurrentView('dashboard')} className={`w-full text-left px-4 py-3 rounded-xl font-bold text-xs transition cursor-pointer ${currentView === 'dashboard' ? 'bg-[#164e43] text-white' : 'text-[#607368] hover:bg-[#f5f7f6]'}`}>
+                <button 
+                  onClick={() => setCurrentView('dashboard')} 
+                  className={`w-full text-left px-4 py-3 rounded-xl font-bold text-xs transition cursor-pointer ${
+                    currentView === 'dashboard' ? 'bg-[#164e43] text-white' : 'text-[#607368] hover:bg-[#f5f7f6]'
+                  }`}
+                >
                   📊 Dashboard
                 </button>
-                <button onClick={() => setCurrentView('logs')} className={`w-full text-left px-4 py-3 rounded-xl font-bold text-xs transition cursor-pointer ${currentView === 'logs' ? 'bg-[#164e43] text-white' : 'text-[#607368] hover:bg-[#f5f7f6]'}`}>
+                <button 
+                  onClick={() => setCurrentView('logs')} 
+                  className={`w-full text-left px-4 py-3 rounded-xl font-bold text-xs transition cursor-pointer ${
+                    currentView === 'logs' ? 'bg-[#164e43] text-white' : 'text-[#607368] hover:bg-[#f5f7f6]'
+                  }`}
+                >
                   📋 Patient Logs
                 </button>
-                <button onClick={() => setCurrentView('reports')} className={`w-full text-left px-4 py-3 rounded-xl font-bold text-xs transition cursor-pointer ${currentView === 'reports' ? 'bg-[#164e43] text-white' : 'text-[#607368] hover:bg-[#f5f7f6]'}`}>
+                <button 
+                  onClick={() => setCurrentView('reports')} 
+                  className={`w-full text-left px-4 py-3 rounded-xl font-bold text-xs transition cursor-pointer ${
+                    currentView === 'reports' ? 'bg-[#164e43] text-white' : 'text-[#607368] hover:bg-[#f5f7f6]'
+                  }`}
+                >
                   📈 Reports & Analytics
                 </button>
-                <button onClick={() => setCurrentView('profile')} className={`w-full text-left px-4 py-3 rounded-xl font-bold text-xs transition cursor-pointer ${currentView === 'profile' ? 'bg-[#164e43] text-white' : 'text-[#607368] hover:bg-[#f5f7f6]'}`}>
+                <button 
+                  onClick={() => setCurrentView('profile')} 
+                  className={`w-full text-left px-4 py-3 rounded-xl font-bold text-xs transition cursor-pointer ${
+                    currentView === 'profile' ? 'bg-[#164e43] text-white' : 'text-[#607368] hover:bg-[#f5f7f6]'
+                  }`}
+                >
                   👤 Profile
                 </button>
               </>
             )}
 
             {isAssistant && (
-              <button onClick={() => setCurrentView('queue')} className="w-full text-left px-4 py-3 rounded-xl font-bold text-xs bg-[#164e43] text-white">
+              <button 
+                onClick={() => setCurrentView('queue')} 
+                className="w-full text-left px-4 py-3 rounded-xl font-bold text-xs bg-[#164e43] text-white"
+              >
                 📋 Patient Queue & Check-in
               </button>
             )}
@@ -129,46 +121,25 @@ function DentalPortalApp() {
                 <button
                   onClick={() => setCurrentView('book')}
                   className={`w-full flex items-center px-4 py-3 rounded-xl font-bold text-xs transition cursor-pointer ${
-                    currentView === 'book'
-                      ? 'bg-[#164e43] text-white'
-                      : 'text-[#607368] hover:bg-[#f5f7f6]'
+                    currentView === 'book' ? 'bg-[#164e43] text-white' : 'text-[#607368] hover:bg-[#f5f7f6]'
                   }`}
                 >
-                  <img
-                    src="sidebar-icons/calendar-icon.png"
-                    alt=""
-                    className={`appointment-icon ${currentView === 'book' ? 'icon-white' : ''}`}
-                  />
                   <span>Book Appointment</span>
                 </button>
                 <button
                   onClick={() => setCurrentView('history')}
                   className={`w-full flex items-center px-4 py-3 rounded-xl font-bold text-xs transition cursor-pointer ${
-                    currentView === 'history'
-                      ? 'bg-[#164e43] text-white'
-                      : 'text-[#607368] hover:bg-[#f5f7f6]'
+                    currentView === 'history' ? 'bg-[#164e43] text-white' : 'text-[#607368] hover:bg-[#f5f7f6]'
                   }`}
                 >
-                  <img
-                    src="sidebar-icons/folder-icon.png"
-                    alt=""
-                    className={`appointment-icon ${currentView === 'history' ? 'icon-white' : ''}`}
-                  />
                   <span>My Records</span>
                 </button>
                 <button
                   onClick={() => setCurrentView('services')}
-                  className={`w-full flex items-center px-4 py-3 rounded-xl -order-1 font-bold text-xs transition cursor-pointer ${
-                    currentView === 'services'
-                      ? 'bg-[#164e43] text-white'
-                      : 'text-[#607368] hover:bg-[#f5f7f6]'
+                  className={`w-full flex items-center px-4 py-3 rounded-xl font-bold text-xs transition cursor-pointer ${
+                    currentView === 'services' ? 'bg-[#164e43] text-white' : 'text-[#607368] hover:bg-[#f5f7f6]'
                   }`}
                 >
-                  <img
-                    src="/sidebar-icons/Services-tab-icon.png"
-                    alt=""
-                    className={`patient-services-nav-icon ${currentView === 'services' ? 'icon-white' : ''}`}
-                  />
                   <span>Services</span>
                 </button>
               </>
@@ -176,7 +147,6 @@ function DentalPortalApp() {
           </nav>
         </div>
 
-        {/* User Session & Logout Footer */}
         <div className="border-t border-[#d4e2dc] pt-4 space-y-3">
           <div>
             <span className="text-[10px] text-[#607368] font-bold uppercase tracking-wider block">Logged in as</span>
@@ -191,7 +161,6 @@ function DentalPortalApp() {
         </div>
       </aside>
 
-      {/* 3. Main System Workspace Viewport */}
       <main className="flex-1 h-full overflow-hidden p-8 flex flex-col">
         {isManager && <ManagerModule {...contextData} currentView={currentView} />}
         {isDentist && (
@@ -203,17 +172,102 @@ function DentalPortalApp() {
           />
         )}
         {isAssistant && <AssistantModule {...contextData} />}
-        {isPatient && <PatientModule {...contextData} currentView={currentView} onViewChange={setCurrentView} user={authenticatedUser} />}
+        {isPatient && (
+          <PatientModule 
+            {...contextData} 
+            currentView={currentView} 
+            onViewChange={setCurrentView} 
+            user={authenticatedUser} 
+          />
+        )}
       </main>
-
     </div>
   );
 }
 
 export default function App() {
+  const [authenticatedUser, setAuthenticatedUser] = useState(() => {
+    const savedUser = localStorage.getItem('dental_portal_user');
+    return savedUser ? JSON.parse(savedUser) : null;
+  });
+
+  const [portalView, setPortalView] = useState('portal');
+  const [selectedCategory, setSelectedCategory] = useState(null);
+
+  const handleLoginSuccess = (role, fullName, id) => {
+    let mappedRole = (role || 'patient').toLowerCase();
+    if (id === 1) mappedRole = 'manager';
+    else if (id === 2) mappedRole = 'dentist';
+    else if (id === 3) mappedRole = 'assistant';
+    else if (id === 4) mappedRole = 'patient';
+
+    const userData = { id, role: mappedRole, name: fullName };
+    localStorage.setItem('dental_portal_user', JSON.stringify(userData));
+    setAuthenticatedUser(userData);
+  };
+
+  const handleLogout = () => {
+    const confirmed = window.confirm('Are you sure you want to sign out of your workspace?');
+    if (confirmed) {
+      localStorage.removeItem('dental_portal_user');
+      setAuthenticatedUser(null);
+      setPortalView('portal');
+      setSelectedCategory(null);
+    }
+  };
+
   return (
     <ClinicProvider>
-      <DentalPortalApp />
+      <div className="min-h-screen w-full bg-[#f4f7f6] overflow-y-auto">
+        {authenticatedUser ? (
+          <MainWorkspace authenticatedUser={authenticatedUser} handleLogout={handleLogout} />
+        ) : (
+          <>
+            {portalView === 'portal' && (
+              <PatientPortal 
+                onRegisterClick={(categoryName) => {
+                  setSelectedCategory(categoryName || null);
+                  setPortalView('register');
+                }}
+                onCheckAppointmentClick={() => {
+                  const wantAdmin = window.confirm('Would you like to sign into the staff/manager portal?');
+                  if (wantAdmin) {
+                    setPortalView('login');
+                  }
+                }}
+              />
+            )}
+
+            {portalView === 'register' && (
+              <AppointmentRegistrationWizard 
+                key={selectedCategory || 'all-services'}
+                selectedCategory={selectedCategory}
+                onCancel={() => {
+                  setSelectedCategory(null);
+                  setPortalView('portal');
+                }}
+                onComplete={() => {
+                  setSelectedCategory(null);
+                  setPortalView('portal');
+                }}
+              />
+            )}
+
+            {portalView === 'login' && (
+              <div className="min-h-screen w-full flex items-center justify-center p-6 relative">
+                <button
+                  type="button"
+                  onClick={() => setPortalView('portal')}
+                  className="absolute top-6 left-6 text-xs font-bold text-[#164e43] bg-white border border-[#d4e2dc] px-4 py-2.5 rounded-xl hover:bg-[#f5f7f6] transition cursor-pointer shadow-2xs"
+                >
+                  ← Back to Portal
+                </button>
+                <Login onLogin={handleLoginSuccess} />
+              </div>
+            )}
+          </>
+        )}
+      </div>
     </ClinicProvider>
   );
 }

@@ -35,6 +35,7 @@ const appointmentStatusColor = (status) => {
 };
 
 export default function ManagerModule({ services, addService, updateService, deleteService, appointments, currentView }) {
+  // Form States
   const [selectedCategory, setSelectedCategory] = useState('');
   const [selectedService, setSelectedService] = useState('');
   const [isCustomService, setIsCustomService] = useState(false);
@@ -43,19 +44,16 @@ export default function ManagerModule({ services, addService, updateService, del
   const [price, setPrice] = useState('');
   const [serviceDescription, setServiceDescription] = useState('');
   const [formError, setFormError] = useState('');
+
+  // Direct Form Edit State (Loaded from Table Click)
+  const [formEditingId, setFormEditingId] = useState(null);
+
   const [calendarDate, setCalendarDate] = useState(() => new Date());
   const [calendarMode, setCalendarMode] = useState('week');
 
   const [catalogSearchQuery, setCatalogSearchQuery] = useState('');
   const [catalogFilterCategory, setCatalogFilterCategory] = useState('ALL');
   const [catalogSortPrice, setCatalogSortPrice] = useState('');
-
-  const [editingId, setEditingId] = useState(null);
-  const [editName, setEditName] = useState('');
-  const [editCategory, setEditCategory] = useState('');
-  const [editDuration, setEditDuration] = useState(30);
-  const [editPrice, setEditPrice] = useState('');
-  const [editDescription, setEditDescription] = useState('');
 
   const [modalConfig, setModalConfig] = useState({
     isOpen: false,
@@ -64,27 +62,25 @@ export default function ManagerModule({ services, addService, updateService, del
     onConfirm: null
   });
 
-  // Strict separation of active database records vs inactive/available database records
   const activeServices = services.filter(s => s.is_active !== false);
   const inactiveServices = services.filter(s => s.is_active === false);
-
-  // Categories extracted strictly from database records
   const categoriesFromDb = [...new Set(services.map(s => s.category))].filter(Boolean);
 
-  // Dropdown options populated strictly from database inactive rows matching category
- const availableServicesInCategory = inactiveServices
-  .filter(s => s.category === selectedCategory)
-  .filter((s, i, arr) =>
-    arr.findIndex(x => x.service_name.trim().toLowerCase() === s.service_name.trim().toLowerCase()) === i
-  );
+  const availableServicesInCategory = inactiveServices
+    .filter(s => s.category === selectedCategory)
+    .filter((s, i, arr) =>
+      arr.findIndex(x => x.service_name.trim().toLowerCase() === s.service_name.trim().toLowerCase()) === i
+    );
 
   const handleCategoryChange = (e) => {
     const cat = e.target.value;
     setSelectedCategory(cat);
-    setSelectedService('');
-    setIsCustomService(false);
-    setCustomServiceName('');
-    setServiceDescription('');
+    if (!formEditingId) {
+      setSelectedService('');
+      setIsCustomService(false);
+      setCustomServiceName('');
+      setServiceDescription('');
+    }
     setFormError('');
   };
 
@@ -107,63 +103,70 @@ export default function ManagerModule({ services, addService, updateService, del
     }
   };
 
-  const handleAddService = async (e) => {
-    e.preventDefault();
+  // Load service into the left form when clicked in the table
+  const handleSelectServiceToEdit = (s) => {
+    setFormEditingId(s.id);
+    setSelectedCategory(s.category || '');
+    setIsCustomService(true);
+    setCustomServiceName(s.service_name || '');
+    setDuration(s.duration_mins || 30);
+    setPrice(s.price || '');
+    setServiceDescription(s.service_description || '');
     setFormError('');
-      const finalServiceName = isCustomService ? customServiceName.trim() : selectedService;
-      if (!selectedCategory || !finalServiceName || !price) return;
+  };
 
-
-    try {
-    await addService({
-      service_name: finalServiceName,
-      category: selectedCategory,
-      duration_mins: parseInt(duration),
-      price: parseFloat(price),
-      service_description: serviceDescription.trim() || null,
-      is_active: true
-    });
-
-     setSelectedCategory('');
+  const handleCancelFormEdit = () => {
+    setFormEditingId(null);
+    setSelectedCategory('');
     setSelectedService('');
     setIsCustomService(false);
     setCustomServiceName('');
-    setPrice('');
     setDuration(30);
+    setPrice('');
     setServiceDescription('');
-  } catch (err) {
-    setFormError(err.message || 'Failed to save service to Supabase.');
-  }
+    setFormError('');
   };
 
-  const startEditing = (s) => {
-    setEditingId(s.id);
-    setEditName(s.service_name || '');
-    setEditCategory(s.category || '');
-    setEditDuration(s.duration_mins || 30);
-    setEditPrice(s.price || '');
-    setEditDescription(s.service_description || '');
-  };
+  const handleFormSubmit = async (e) => {
+    e.preventDefault();
+    setFormError('');
+    const finalServiceName = isCustomService ? customServiceName.trim() : selectedService;
+    if (!selectedCategory || !finalServiceName || !price) return;
 
-  const confirmSaveEdit = (id) => {
-    setModalConfig({
-      isOpen: true,
-      title: "Save Changes",
-      message: "Are you sure to save changes to this service in Supabase?",
-      onConfirm: async () => {
-        if (updateService) {
-          await updateService(id, {
-            service_name: editName,
-            category: editCategory,
-            duration_mins: parseInt(editDuration),
-            price: parseFloat(editPrice),
-            service_description: editDescription.trim() || null
-          });
+    if (formEditingId) {
+      setModalConfig({
+        isOpen: true,
+        title: "Update Service",
+        message: "Are you sure to save changes to this service in Supabase?",
+        onConfirm: async () => {
+          if (updateService) {
+            await updateService(formEditingId, {
+              service_name: finalServiceName,
+              category: selectedCategory,
+              duration_mins: parseInt(duration),
+              price: parseFloat(price),
+              service_description: serviceDescription.trim() || null
+            });
+          }
+          handleCancelFormEdit();
+          setModalConfig({ isOpen: false, title: '', message: '', onConfirm: null });
         }
-        setEditingId(null);
-        setModalConfig({ isOpen: false, title: '', message: '', onConfirm: null });
+      });
+    } else {
+      try {
+        await addService({
+          service_name: finalServiceName,
+          category: selectedCategory,
+          duration_mins: parseInt(duration),
+          price: parseFloat(price),
+          service_description: serviceDescription.trim() || null,
+          is_active: true
+        });
+        handleCancelFormEdit();
+      } catch (err) {
+        setFormError(err.message || 'Failed to save service to Supabase.');
       }
-    });
+    }
   };
 
   const confirmDelete = (id) => {
@@ -174,6 +177,7 @@ export default function ManagerModule({ services, addService, updateService, del
       onConfirm: async () => {
         if (deleteService) {
           await deleteService(id);
+          if (formEditingId === id) handleCancelFormEdit();
         }
         setModalConfig({ isOpen: false, title: '', message: '', onConfirm: null });
       }
@@ -369,9 +373,21 @@ export default function ManagerModule({ services, addService, updateService, del
       {(currentView === 'services' || !currentView) && (
         <div className="h-full grid grid-cols-12 gap-6 overflow-hidden">
           
+          {/* Left Form: Add / Edit Service */}
           <div className="col-span-4 bg-white border border-[#d4e2dc] rounded-2xl p-6 shadow-2xs overflow-y-auto flex flex-col">
-            <h3 className="font-black text-lg text-[#13241b] mb-1">Add Clinic Service</h3>
-            <p className="text-xs text-[#607368] mb-4">Direct database persistence via Supabase.</p>
+            <div className="flex justify-between items-center mb-1">
+              <h3 className="font-black text-lg text-[#13241b]">
+                {formEditingId ? 'Edit Service' : 'Add Clinic Service'}
+              </h3>
+              {formEditingId && (
+                <span className="text-[10px] bg-amber-100 text-amber-800 px-2.5 py-1 rounded-full font-bold uppercase tracking-wider">
+                  Editing Mode Active
+                </span>
+              )}
+            </div>
+            <p className="text-xs text-[#607368] mb-4">
+              {formEditingId ? 'Modify service details below or cancel.' : 'Direct database persistence via Supabase.'}
+            </p>
 
             {formError && (
               <div className="bg-red-50 border border-red-200 text-red-700 text-xs p-3 rounded-xl mb-4 font-bold">
@@ -379,7 +395,7 @@ export default function ManagerModule({ services, addService, updateService, del
               </div>
             )}
 
-            <form onSubmit={handleAddService} className="space-y-4 flex-1 flex flex-col justify-between">
+            <form onSubmit={handleFormSubmit} className="space-y-4 flex-1 flex flex-col justify-between">
               <div className="space-y-4">
                 
                 <div>
@@ -397,7 +413,7 @@ export default function ManagerModule({ services, addService, updateService, del
                   </select>
                 </div>
 
-                {selectedCategory && (
+                {!formEditingId && selectedCategory && (
                   <div>
                     <label className="block text-xs font-bold text-[#164e43] mb-1">2. Select Offered Service *</label>
                     <select 
@@ -415,9 +431,9 @@ export default function ManagerModule({ services, addService, updateService, del
                   </div>
                 )}
 
-                {isCustomService && (
+                {(isCustomService || formEditingId) && (
                   <div>
-                    <label className="block text-xs font-bold text-amber-800 mb-1">Enter Custom Service Name *</label>
+                    <label className="block text-xs font-bold text-amber-800 mb-1">Service Name *</label>
                     <input 
                       type="text" 
                       required 
@@ -466,16 +482,29 @@ export default function ManagerModule({ services, addService, updateService, del
 
               </div>
 
-              <button 
-                type="submit" 
-                disabled={!selectedCategory || (!selectedService && !customServiceName) || !price}
-                className="w-full bg-[#164e43] text-white py-3.5 rounded-xl font-bold text-xs shadow-2xs hover:bg-[#0f362e] transition cursor-pointer disabled:opacity-50 mt-4"
-              >
-                + Save Service to Supabase
-              </button>
+              {/* Prominent Form Action Buttons */}
+              <div className="space-y-2 mt-4">
+                <button 
+                  type="submit" 
+                  disabled={!selectedCategory || (!selectedService && !customServiceName) || !price}
+                  className="w-full bg-[#164e43] text-white py-3.5 rounded-xl font-bold text-xs shadow-2xs hover:bg-[#0f362e] transition cursor-pointer disabled:opacity-50"
+                >
+                  {formEditingId ? 'Update Service in Supabase' : '+ Save Service to Supabase'}
+                </button>
+                {formEditingId && (
+                  <button 
+                    type="button" 
+                    onClick={handleCancelFormEdit}
+                    className="w-full bg-gray-200 text-gray-800 py-3 rounded-xl font-bold text-xs hover:bg-gray-300 transition cursor-pointer border border-gray-300"
+                  >
+                    Cancel Editing
+                  </button>
+                )}
+              </div>
             </form>
           </div>
 
+          {/* Right Catalog Table */}
           <div className="col-span-8 bg-white border border-[#d4e2dc] rounded-2xl p-6 shadow-2xs flex flex-col overflow-hidden">
             <div className="flex justify-between items-center mb-4">
               <h3 className="font-black text-lg text-[#13241b]">Manage Services & Pricing</h3>
@@ -534,75 +563,15 @@ export default function ManagerModule({ services, addService, updateService, del
                 </thead>
                 <tbody className="divide-y divide-[#f0f5f2] text-xs">
                   {filteredAndSortedServices.map(s => {
-                    const isEditing = editingId === s.id;
-                    
-                    return isEditing ? (
-                      <tr key={s.id} className="bg-[#f0f5f2]">
-                        <td className="py-2 px-2">
-                          <input 
-                            type="text" 
-                            value={editName} 
-                            onChange={e => setEditName(e.target.value)}
-                            className="w-full border border-[#d4e2dc] rounded-lg p-2 text-xs bg-white font-bold"
-                          />
-                        </td>
-                        <td className="py-2 px-2">
-                          <textarea
-                            rows="2"
-                            value={editDescription}
-                            onChange={e => setEditDescription(e.target.value)}
-                            className="w-full min-w-32 border border-[#d4e2dc] rounded-lg p-2 text-xs bg-white resize-y"
-                            aria-label={`Description for ${editName}`}
-                          />
-                        </td>
-                        <td className="py-2 px-2">
-                          <select 
-                            value={editCategory} 
-                            onChange={e => setEditCategory(e.target.value)}
-                            className="border border-[#d4e2dc] rounded-lg p-2 text-xs bg-white"
-                          >
-                            {categoriesFromDb.map(c => (
-                              <option key={c} value={c}>{c}</option>
-                            ))}
-                          </select>
-                        </td>
-                        <td className="py-2 px-2">
-                          <input 
-                            type="number" 
-                            value={editDuration} 
-                            onChange={e => setEditDuration(e.target.value)}
-                            className="w-16 border border-[#d4e2dc] rounded-lg p-2 text-xs bg-white"
-                          />
-                        </td>
-                        <td className="py-2 px-2 text-right">
-                          <input 
-                            type="number" 
-                            value={editPrice} 
-                            onChange={e => setEditPrice(e.target.value)}
-                            className="w-24 border border-[#d4e2dc] rounded-lg p-2 text-xs bg-white text-right font-bold"
-                          />
-                        </td>
-                        <td className="py-2 px-2 whitespace-nowrap">
-                          <div className="flex items-center justify-center gap-1.5">
-                          <button 
-                            type="button"
-                            onClick={() => confirmSaveEdit(s.id)}
-                            className="bg-[#164e43] text-white px-2.5 py-1.5 rounded-lg text-xs font-bold hover:bg-[#0f362e] transition cursor-pointer"
-                          >
-                            Save
-                          </button>
-                          <button 
-                            type="button"
-                            onClick={() => setEditingId(null)}
-                            className="bg-gray-200 text-gray-700 px-2.5 py-1.5 rounded-lg text-xs font-bold hover:bg-gray-300 transition cursor-pointer"
-                          >
-                            Cancel
-                          </button>
-                          </div>
-                        </td>
-                      </tr>
-                    ) : (
-                      <tr key={s.id} className="hover:bg-[#f8faf9]">
+                    const isSelectedForEdit = formEditingId === s.id;
+
+                    return (
+                      <tr 
+                        key={s.id} 
+                        onClick={() => handleSelectServiceToEdit(s)}
+                        className={`transition cursor-pointer ${isSelectedForEdit ? 'bg-[#e3ede6]/80 border-l-4 border-l-[#164e43]' : 'hover:bg-[#f8faf9]'}`}
+                        title="Click row to select for editing"
+                      >
                         <td className="py-3 px-2 font-bold text-[#13241b]">{s.service_name}</td>
                         <td className="py-3 px-2 text-[#607368] max-w-xs whitespace-pre-wrap">{s.service_description || '—'}</td>
                         <td className="py-3 px-2">
@@ -612,22 +581,15 @@ export default function ManagerModule({ services, addService, updateService, del
                         </td>
                         <td className="py-3 px-2 text-[#607368]">{s.duration_mins || 30} mins</td>
                         <td className="py-3 px-2 text-right font-black text-[#164e43]">₱{parseFloat(s.price || 0).toLocaleString()}</td>
-                        <td className="py-3 px-2 whitespace-nowrap">
+                        <td className="py-3 px-2 text-center whitespace-nowrap" onClick={e => e.stopPropagation()}>
                           <div className="flex items-center justify-center gap-1.5">
-                          <button 
-                            type="button"
-                            onClick={() => startEditing(s)}
-                            className="bg-[#e3ede6] text-[#164e43] hover:bg-[#164e43] hover:text-white px-2.5 py-1 rounded-lg font-bold text-xs transition cursor-pointer"
-                          >
-                            Edit
-                          </button>
-                          <button 
-                            type="button"
-                            onClick={() => confirmDelete(s.id)}
-                            className="bg-red-50 text-red-600 hover:bg-red-600 hover:text-white px-2.5 py-1 rounded-lg font-bold text-xs transition cursor-pointer"
-                          >
-                            Remove
-                          </button>
+                            <button 
+                              type="button"
+                              onClick={() => confirmDelete(s.id)}
+                              className="bg-red-50 text-red-600 hover:bg-red-600 hover:text-white px-3 py-1.5 rounded-lg font-bold text-xs transition cursor-pointer shadow-2xs"
+                            >
+                              Remove
+                            </button>
                           </div>
                         </td>
                       </tr>
