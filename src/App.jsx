@@ -86,15 +86,17 @@ function DentalPortalApp() {
           <nav className="flex flex-col gap-2">
             {isManager && (
               <>
-                <button onClick={() => setCurrentView('dashboard')} className={`w-full text-left px-4 py-3 rounded-xl font-bold text-xs transition cursor-pointer ${currentView === 'dashboard' ? 'bg-[#164e43] text-white' : 'text-[#607368] hover:bg-[#f5f7f6]'}`}>
-                  📊 Manager Dashboard
+                <button onClick={() => setCurrentView('dashboard')} className={`w-full flex items-center px-4 py-3 rounded-xl font-bold text-xs transition cursor-pointer ${currentView === 'dashboard' ? 'bg-[#164e43] text-white' : 'text-[#607368] hover:bg-[#f5f7f6]'}`}>
+                  <img src="/sidebar-icons/dashboard-icon.png" alt="" className={`dashboard-icon ${currentView === 'dashboard' ? 'icon-white' : ''}`} />
+                  <span>Manager Dashboard</span>
                 </button>
                 <button onClick={() => setCurrentView('calendar')} className={`w-full flex items-center px-4 py-3 rounded-xl font-bold text-xs transition cursor-pointer ${currentView === 'calendar' ? 'bg-[#164e43] text-white' : 'text-[#607368] hover:bg-[#f5f7f6]'}`}>
                   <img src="/sidebar-icons/calendar-icon.png" alt="" className={`appointment-icon ${currentView === 'calendar' ? 'icon-white' : ''}`} />
                   <span>Master calendar</span>
                 </button>
-                <button onClick={() => setCurrentView('services')} className={`w-full text-left px-4 py-3 rounded-xl font-bold text-xs transition cursor-pointer ${currentView === 'services' ? 'bg-[#164e43] text-white' : 'text-[#607368] hover:bg-[#f5f7f6]'}`}>
-                  ⚙️ Services Catalog
+                <button onClick={() => setCurrentView('services')} className={`w-full flex items-center px-4 py-3 rounded-xl font-bold text-xs transition cursor-pointer ${currentView === 'services' ? 'bg-[#164e43] text-white' : 'text-[#607368] hover:bg-[#f5f7f6]'}`}>
+                  <img src="/sidebar-icons/services-catalog.png" alt="" className={`services-catalog-icon ${currentView === 'services' ? 'icon-white' : ''}`} />
+                  <span>Services Catalog</span>
                 </button>
               </>
             )}

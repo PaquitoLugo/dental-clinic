@@ -41,6 +41,7 @@ export default function ManagerModule({ services, addService, updateService, del
   const [customServiceName, setCustomServiceName] = useState('');
   const [duration, setDuration] = useState(30);
   const [price, setPrice] = useState('');
+  const [serviceDescription, setServiceDescription] = useState('');
   const [formError, setFormError] = useState('');
   const [calendarDate, setCalendarDate] = useState(() => new Date());
   const [calendarMode, setCalendarMode] = useState('week');
@@ -54,6 +55,7 @@ export default function ManagerModule({ services, addService, updateService, del
   const [editCategory, setEditCategory] = useState('');
   const [editDuration, setEditDuration] = useState(30);
   const [editPrice, setEditPrice] = useState('');
+  const [editDescription, setEditDescription] = useState('');
 
   const [modalConfig, setModalConfig] = useState({
     isOpen: false,
@@ -82,6 +84,7 @@ export default function ManagerModule({ services, addService, updateService, del
     setSelectedService('');
     setIsCustomService(false);
     setCustomServiceName('');
+    setServiceDescription('');
     setFormError('');
   };
 
@@ -91,6 +94,7 @@ export default function ManagerModule({ services, addService, updateService, del
     if (val === 'CUSTOM') {
       setIsCustomService(true);
       setSelectedService('');
+      setServiceDescription('');
     } else {
       setIsCustomService(false);
       setSelectedService(val);
@@ -98,6 +102,7 @@ export default function ManagerModule({ services, addService, updateService, del
       if (matched) {
         if (matched.price) setPrice(matched.price);
         if (matched.duration_mins) setDuration(matched.duration_mins);
+        setServiceDescription(matched.service_description || '');
       }
     }
   };
@@ -115,6 +120,7 @@ export default function ManagerModule({ services, addService, updateService, del
       category: selectedCategory,
       duration_mins: parseInt(duration),
       price: parseFloat(price),
+      service_description: serviceDescription.trim() || null,
       is_active: true
     });
 
@@ -124,6 +130,7 @@ export default function ManagerModule({ services, addService, updateService, del
     setCustomServiceName('');
     setPrice('');
     setDuration(30);
+    setServiceDescription('');
   } catch (err) {
     setFormError(err.message || 'Failed to save service to Supabase.');
   }
@@ -135,6 +142,7 @@ export default function ManagerModule({ services, addService, updateService, del
     setEditCategory(s.category || '');
     setEditDuration(s.duration_mins || 30);
     setEditPrice(s.price || '');
+    setEditDescription(s.service_description || '');
   };
 
   const confirmSaveEdit = (id) => {
@@ -148,7 +156,8 @@ export default function ManagerModule({ services, addService, updateService, del
             service_name: editName,
             category: editCategory,
             duration_mins: parseInt(editDuration),
-            price: parseFloat(editPrice)
+            price: parseFloat(editPrice),
+            service_description: editDescription.trim() || null
           });
         }
         setEditingId(null);
@@ -420,6 +429,17 @@ export default function ManagerModule({ services, addService, updateService, del
                   </div>
                 )}
 
+                <div>
+                  <label className="block text-xs font-bold text-[#607368] mb-1">Service Description</label>
+                  <textarea
+                    rows="3"
+                    value={serviceDescription}
+                    onChange={e => setServiceDescription(e.target.value)}
+                    placeholder="Describe the service for patients"
+                    className="w-full resize-y border border-[#d4e2dc] rounded-xl p-3 text-xs bg-[#f5f7f6] text-[#13241b] focus:outline-none focus:border-[#164e43]"
+                  />
+                </div>
+
                 <div className="grid grid-cols-2 gap-3 pt-1">
                   <div>
                     <label className="block text-xs font-bold text-[#607368] mb-1">Duration (mins)</label>
@@ -505,6 +525,7 @@ export default function ManagerModule({ services, addService, updateService, del
                 <thead>
                   <tr className="border-b border-[#d4e2dc] text-[11px] font-bold text-[#607368] uppercase">
                     <th className="py-3 px-2">Service Title</th>
+                    <th className="py-3 px-2">Description</th>
                     <th className="py-3 px-2">Category</th>
                     <th className="py-3 px-2">Duration</th>
                     <th className="py-3 px-2 text-right">Price (₱)</th>
@@ -523,6 +544,15 @@ export default function ManagerModule({ services, addService, updateService, del
                             value={editName} 
                             onChange={e => setEditName(e.target.value)}
                             className="w-full border border-[#d4e2dc] rounded-lg p-2 text-xs bg-white font-bold"
+                          />
+                        </td>
+                        <td className="py-2 px-2">
+                          <textarea
+                            rows="2"
+                            value={editDescription}
+                            onChange={e => setEditDescription(e.target.value)}
+                            className="w-full min-w-32 border border-[#d4e2dc] rounded-lg p-2 text-xs bg-white resize-y"
+                            aria-label={`Description for ${editName}`}
                           />
                         </td>
                         <td className="py-2 px-2">
@@ -552,7 +582,8 @@ export default function ManagerModule({ services, addService, updateService, del
                             className="w-24 border border-[#d4e2dc] rounded-lg p-2 text-xs bg-white text-right font-bold"
                           />
                         </td>
-                        <td className="py-2 px-2 text-center space-x-1">
+                        <td className="py-2 px-2 whitespace-nowrap">
+                          <div className="flex items-center justify-center gap-1.5">
                           <button 
                             type="button"
                             onClick={() => confirmSaveEdit(s.id)}
@@ -567,11 +598,13 @@ export default function ManagerModule({ services, addService, updateService, del
                           >
                             Cancel
                           </button>
+                          </div>
                         </td>
                       </tr>
                     ) : (
                       <tr key={s.id} className="hover:bg-[#f8faf9]">
                         <td className="py-3 px-2 font-bold text-[#13241b]">{s.service_name}</td>
+                        <td className="py-3 px-2 text-[#607368] max-w-xs whitespace-pre-wrap">{s.service_description || '—'}</td>
                         <td className="py-3 px-2">
                           <span className="bg-[#f0f5f2] border border-[#d4e2dc] text-[#607368] px-2.5 py-0.5 rounded-md font-semibold text-[11px]">
                             {s.category}
@@ -579,21 +612,23 @@ export default function ManagerModule({ services, addService, updateService, del
                         </td>
                         <td className="py-3 px-2 text-[#607368]">{s.duration_mins || 30} mins</td>
                         <td className="py-3 px-2 text-right font-black text-[#164e43]">₱{parseFloat(s.price || 0).toLocaleString()}</td>
-                        <td className="py-3 px-2 text-center space-x-2">
+                        <td className="py-3 px-2 whitespace-nowrap">
+                          <div className="flex items-center justify-center gap-1.5">
                           <button 
                             type="button"
                             onClick={() => startEditing(s)}
-                            className="bg-[#e3ede6] text-[#164e43] hover:bg-[#164e43] hover:text-white px-3 py-1 rounded-lg font-bold text-xs transition cursor-pointer"
+                            className="bg-[#e3ede6] text-[#164e43] hover:bg-[#164e43] hover:text-white px-2.5 py-1 rounded-lg font-bold text-xs transition cursor-pointer"
                           >
                             Edit
                           </button>
                           <button 
                             type="button"
                             onClick={() => confirmDelete(s.id)}
-                            className="bg-red-50 text-red-600 hover:bg-red-600 hover:text-white px-3 py-1 rounded-lg font-bold text-xs transition cursor-pointer"
+                            className="bg-red-50 text-red-600 hover:bg-red-600 hover:text-white px-2.5 py-1 rounded-lg font-bold text-xs transition cursor-pointer"
                           >
                             Remove
                           </button>
+                          </div>
                         </td>
                       </tr>
                     );

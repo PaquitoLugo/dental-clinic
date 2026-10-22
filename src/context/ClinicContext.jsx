@@ -61,6 +61,7 @@ export function ClinicProvider({ children }) {
       category: serviceData.category,
       duration_mins: parseInt(serviceData.duration_mins || 30),
       price: parseFloat(serviceData.price),
+      service_description: serviceData.service_description || null,
       is_active: true
     };
 

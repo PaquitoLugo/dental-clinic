@@ -28,6 +28,18 @@ body {
   margin-right: 8px;
 }
 
+.dashboard-icon {
+  width: 20px;
+  height: 20px;
+  margin-right: 8px;
+}
+
+.services-catalog-icon {
+  width: 20px;
+  height: 20px;
+  margin-right: 8px;
+}
+
 .icon-white {
   filter: brightness(0) invert(1);
 }
