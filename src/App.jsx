@@ -57,7 +57,7 @@ function MainWorkspace({ authenticatedUser, handleLogout }) {
                     currentView === 'calendar' ? 'bg-[#164e43] text-white' : 'text-[#607368] hover:bg-[#f5f7f6]'
                   }`}
                 >
-                  <span>Master calendar</span>
+                  <span>Master Calendar</span>
                 </button>
                 <button 
                   onClick={() => setCurrentView('services')} 
@@ -67,45 +67,61 @@ function MainWorkspace({ authenticatedUser, handleLogout }) {
                 >
                   <span>Services Catalog</span>
                 </button>
+                <button 
+                  onClick={() => setCurrentView('users')} 
+                  className={`w-full flex items-center px-4 py-3 rounded-xl font-bold text-xs transition cursor-pointer ${
+                    currentView === 'users' ? 'bg-[#164e43] text-white' : 'text-[#607368] hover:bg-[#f5f7f6]'
+                  }`}
+                >
+                  <span>User Management</span>
+                </button>
               </>
             )}
 
             {isDentist && (
-              <>
-                <button 
-                  onClick={() => setCurrentView('dashboard')} 
-                  className={`w-full text-left px-4 py-3 rounded-xl font-bold text-xs transition cursor-pointer ${
-                    currentView === 'dashboard' ? 'bg-[#164e43] text-white' : 'text-[#607368] hover:bg-[#f5f7f6]'
-                  }`}
-                >
-                  📊 Dashboard
-                </button>
-                <button 
-                  onClick={() => setCurrentView('logs')} 
-                  className={`w-full text-left px-4 py-3 rounded-xl font-bold text-xs transition cursor-pointer ${
-                    currentView === 'logs' ? 'bg-[#164e43] text-white' : 'text-[#607368] hover:bg-[#f5f7f6]'
-                  }`}
-                >
-                  📋 Patient Logs
-                </button>
-                <button 
-                  onClick={() => setCurrentView('reports')} 
-                  className={`w-full text-left px-4 py-3 rounded-xl font-bold text-xs transition cursor-pointer ${
-                    currentView === 'reports' ? 'bg-[#164e43] text-white' : 'text-[#607368] hover:bg-[#f5f7f6]'
-                  }`}
-                >
-                  📈 Reports & Analytics
-                </button>
-                <button 
-                  onClick={() => setCurrentView('profile')} 
-                  className={`w-full text-left px-4 py-3 rounded-xl font-bold text-xs transition cursor-pointer ${
-                    currentView === 'profile' ? 'bg-[#164e43] text-white' : 'text-[#607368] hover:bg-[#f5f7f6]'
-                  }`}
-                >
-                  👤 Profile
-                </button>
-              </>
-            )}
+  <>
+    <button 
+      onClick={() => setCurrentView('dashboard')} 
+      className={`w-full text-left px-4 py-3 rounded-xl font-bold text-xs transition cursor-pointer ${
+        currentView === 'dashboard' ? 'bg-[#164e43] text-white' : 'text-[#607368] hover:bg-[#f5f7f6]'
+      }`}
+    >
+      📊 Dashboard
+    </button>
+    <button 
+      onClick={() => setCurrentView('scheduler')} 
+      className={`w-full text-left px-4 py-3 rounded-xl font-bold text-xs transition cursor-pointer ${
+        currentView === 'scheduler' ? 'bg-[#164e43] text-white' : 'text-[#607368] hover:bg-[#f5f7f6]'
+      }`}
+    >
+      📅 Availability Scheduler
+    </button>
+    <button 
+      onClick={() => setCurrentView('logs')} 
+      className={`w-full text-left px-4 py-3 rounded-xl font-bold text-xs transition cursor-pointer ${
+        currentView === 'logs' ? 'bg-[#164e43] text-white' : 'text-[#607368] hover:bg-[#f5f7f6]'
+      }`}
+    >
+      📋 Patient Logs
+    </button>
+    <button 
+      onClick={() => setCurrentView('reports')} 
+      className={`w-full text-left px-4 py-3 rounded-xl font-bold text-xs transition cursor-pointer ${
+        currentView === 'reports' ? 'bg-[#164e43] text-white' : 'text-[#607368] hover:bg-[#f5f7f6]'
+      }`}
+    >
+      📈 Reports & Analytics
+    </button>
+    <button 
+      onClick={() => setCurrentView('profile')} 
+      className={`w-full text-left px-4 py-3 rounded-xl font-bold text-xs transition cursor-pointer ${
+        currentView === 'profile' ? 'bg-[#164e43] text-white' : 'text-[#607368] hover:bg-[#f5f7f6]'
+      }`}
+    >
+      👤 Profile
+    </button>
+  </>
+)}
 
             {isAssistant && (
               <button 

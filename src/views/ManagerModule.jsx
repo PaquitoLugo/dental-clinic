@@ -1,4 +1,5 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
+import { supabase } from '../lib/supabase';
 
 const startOfWeek = (date) => {
   const start = new Date(date.getFullYear(), date.getMonth(), date.getDate());
@@ -35,6 +36,15 @@ const appointmentStatusColor = (status) => {
 };
 
 export default function ManagerModule({ services, addService, updateService, deleteService, appointments, currentView }) {
+  // User Management State
+  const [staffUsers, setStaffUsers] = useState([]);
+  const [loadingStaff, setLoadingStaff] = useState(false);
+  const [newDentistName, setNewDentistName] = useState('');
+  const [newDentistUsername, setNewDentistUsername] = useState('');
+  const [newDentistPassword, setNewDentistPassword] = useState('');
+  const [newDentistEmail, setNewDentistEmail] = useState('');
+  const [userMsg, setUserMsg] = useState('');
+
   // Form States
   const [selectedCategory, setSelectedCategory] = useState('');
   const [selectedService, setSelectedService] = useState('');
@@ -45,7 +55,6 @@ export default function ManagerModule({ services, addService, updateService, del
   const [serviceDescription, setServiceDescription] = useState('');
   const [formError, setFormError] = useState('');
 
-  // Direct Form Edit State (Loaded from Table Click)
   const [formEditingId, setFormEditingId] = useState(null);
 
   const [calendarDate, setCalendarDate] = useState(() => new Date());
@@ -103,7 +112,6 @@ export default function ManagerModule({ services, addService, updateService, del
     }
   };
 
-  // Load service into the left form when clicked in the table
   const handleSelectServiceToEdit = (s) => {
     setFormEditingId(s.id);
     setSelectedCategory(s.category || '');
@@ -182,6 +190,46 @@ export default function ManagerModule({ services, addService, updateService, del
         setModalConfig({ isOpen: false, title: '', message: '', onConfirm: null });
       }
     });
+  };
+
+  // Fetch all users when view is 'users'
+  useEffect(() => {
+    if (currentView === 'users') {
+      fetchStaffUsers();
+    }
+  }, [currentView]);
+
+  async function fetchStaffUsers() {
+    setLoadingStaff(true);
+    const { data, error } = await supabase.from('staff_users').select('*');
+    if (!error && data) setStaffUsers(data);
+    setLoadingStaff(false);
+  }
+
+  const handleRegisterDentist = async (e) => {
+    e.preventDefault();
+    setUserMsg('');
+
+    try {
+      const { error } = await supabase.from('staff_users').insert([{
+        full_name: newDentistName.trim(),
+        username: newDentistUsername.trim().toLowerCase(),
+        password: newDentistPassword.trim(),
+        email: newDentistEmail.trim(),
+        role: 'dentist'
+      }]);
+
+      if (error) throw error;
+
+      setUserMsg('Successfully registered new Dentist account!');
+      setNewDentistName('');
+      setNewDentistUsername('');
+      setNewDentistPassword('');
+      setNewDentistEmail('');
+      fetchStaffUsers();
+    } catch (err) {
+      setUserMsg('Error registering dentist: ' + err.message);
+    }
   };
 
   const filteredAndSortedServices = activeServices
@@ -266,7 +314,7 @@ export default function ManagerModule({ services, addService, updateService, del
       )}
 
       {currentView === 'dashboard' && (
-        <div className="flex-1 overflow-y-auto space-y-6">
+        <div className="flex-1 overflow-y-auto space-y-6 p-2">
           <div>
             <h2 className="font-black text-2xl text-[#13241b]">Manager Dashboard</h2>
             <p className="text-xs text-[#607368]">Financial analytics and clinic performance overview.</p>
@@ -285,7 +333,7 @@ export default function ManagerModule({ services, addService, updateService, del
       )}
 
       {currentView === 'calendar' && (
-        <section className="h-full min-h-0 flex flex-col gap-4 overflow-hidden" aria-label="Master appointment calendar">
+        <section className="h-full min-h-0 flex flex-col gap-4 overflow-hidden p-2" aria-label="Master appointment calendar">
           <header className="flex flex-wrap items-center justify-between gap-4">
             <div>
               <h2 className="font-black text-2xl text-[#13241b]">Master calendar</h2>
@@ -295,311 +343,187 @@ export default function ManagerModule({ services, addService, updateService, del
               <button type="button" onClick={() => moveCalendar(-1)} aria-label="Previous period" className="w-10 h-10 rounded-xl border border-[#d4e2dc] bg-white text-[#164e43] font-bold hover:bg-[#f0f5f2]">‹</button>
               <button type="button" onClick={() => setCalendarDate(new Date())} className="h-10 px-4 rounded-xl border border-[#d4e2dc] bg-white text-[#164e43] text-sm font-bold hover:bg-[#f0f5f2]">Today</button>
               <button type="button" onClick={() => moveCalendar(1)} aria-label="Next period" className="w-10 h-10 rounded-xl border border-[#d4e2dc] bg-white text-[#164e43] font-bold hover:bg-[#f0f5f2]">›</button>
-              <div className="ml-2 flex rounded-xl border border-[#d4e2dc] bg-white p-1">
-                {['week', 'month'].map(mode => (
-                  <button key={mode} type="button" onClick={() => setCalendarMode(mode)} aria-pressed={calendarMode === mode} className={`px-3 py-2 rounded-lg text-sm font-bold capitalize transition ${calendarMode === mode ? 'bg-[#e3ede6] text-[#164e43]' : 'text-[#607368] hover:bg-[#f5f7f6]'}`}>
-                    {mode}
-                  </button>
-                ))}
-              </div>
             </div>
           </header>
 
           <div className="flex-1 min-h-0 bg-white border border-[#d4e2dc] rounded-2xl p-4 flex flex-col overflow-hidden">
-            <div className={`grid grid-cols-7 gap-2 mb-2 font-bold text-[#607368] ${calendarMode === 'week' ? 'text-sm' : 'text-xs'}`}>
+            <div className="grid grid-cols-7 gap-2 mb-2 font-bold text-[#607368] text-xs">
               {['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'].map(day => (
                 <div key={day} className="px-2">{day.slice(0, 3)}</div>
               ))}
             </div>
 
-            {calendarMode === 'week' ? (
-              <div className="flex-1 min-h-0 grid grid-cols-7 gap-2">
-                {calendarDays.map(day => {
-                  const key = dateKey(day);
-                  const dayAppointments = appointmentsByDate[key] || [];
-                  return (
-                    <div key={key} className={`min-w-0 rounded-xl border p-2 flex flex-col ${key === todayKey ? 'border-[#4c9a84] bg-[#f5f9f7]' : 'border-[#e5ece8] bg-[#f8faf9]'}`}>
-                      <div className={`text-base font-black mb-2 ${key === todayKey ? 'text-[#164e43]' : 'text-[#13241b]'}`}>
-                        {day.toLocaleDateString('en-US', { weekday: 'short', day: 'numeric' })}
-                      </div>
-                      <div className="flex-1 overflow-y-auto space-y-1.5">
-                        {dayAppointments.map(appointment => (
-                          <article key={appointment.id} title={`${appointment.patient_name} · ${appointment.service_name || 'Appointment'} · ${appointment.status}`} className={`border-l-4 rounded-md px-2 py-1.5 text-sm leading-tight text-[#13241b] break-words ${appointmentStatusColor(appointment.status)}`}>
-                            <span className="font-black">{formatTime(appointment.appointment_time)}</span>{' '}
-                            <span>{appointment.patient_name || 'Patient'}</span>
-                          </article>
-                        ))}
-                        {dayAppointments.length === 0 && <span className="text-sm text-[#9aa9a2]">No appointments</span>}
-                      </div>
+            <div className="flex-1 min-h-0 grid grid-cols-7 gap-2">
+              {calendarDays.map(day => {
+                const key = dateKey(day);
+                const dayAppointments = appointmentsByDate[key] || [];
+                return (
+                  <div key={key} className={`min-w-0 rounded-xl border p-2 flex flex-col ${key === todayKey ? 'border-[#4c9a84] bg-[#f5f9f7]' : 'border-[#e5ece8] bg-[#f8faf9]'}`}>
+                    <div className={`text-base font-black mb-2 ${key === todayKey ? 'text-[#164e43]' : 'text-[#13241b]'}`}>
+                      {day.toLocaleDateString('en-US', { weekday: 'short', day: 'numeric' })}
                     </div>
-                  );
-                })}
-              </div>
-            ) : (
-              <div className="flex-1 min-h-0 grid grid-cols-7 grid-rows-6 gap-2 overflow-y-auto">
-                {calendarDays.map(day => {
-                  const key = dateKey(day);
-                  const dayAppointments = appointmentsByDate[key] || [];
-                  const isCurrentMonth = day.getMonth() === calendarDate.getMonth();
-                  return (
-                    <div key={key} className={`min-h-[90px] min-w-0 rounded-xl border p-2 flex flex-col ${key === todayKey ? 'border-[#4c9a84] bg-[#f5f9f7]' : 'border-[#e9efec] bg-white'} ${isCurrentMonth ? '' : 'opacity-50'}`}>
-                      <div className="text-sm font-black text-[#13241b] mb-1">{day.getDate()}</div>
-                      <div className="space-y-1 overflow-y-auto">
-                        {dayAppointments.slice(0, 3).map(appointment => (
-                          <article key={appointment.id} title={`${appointment.patient_name} · ${appointment.service_name || 'Appointment'} · ${appointment.status}`} className={`border-l-[3px] rounded px-1 py-1 text-xs leading-tight text-[#13241b] break-words ${appointmentStatusColor(appointment.status)}`}>
-                            <span className="font-black">{formatTime(appointment.appointment_time)}</span>{' '}
-                            <span>{appointment.patient_name || 'Patient'}</span>
-                          </article>
-                        ))}
-                        {dayAppointments.length > 3 && <p className="text-xs font-bold text-[#607368] px-1">+{dayAppointments.length - 3} more</p>}
-                      </div>
+                    <div className="flex-1 overflow-y-auto space-y-1.5">
+                      {dayAppointments.map(appointment => (
+                        <article key={appointment.id} className={`border-l-4 rounded-md px-2 py-1.5 text-xs leading-tight text-[#13241b] break-words ${appointmentStatusColor(appointment.status)}`}>
+                          <span className="font-black">{formatTime(appointment.appointment_time)}</span>{' '}
+                          <span>{appointment.patient_name || 'Patient'}</span>
+                        </article>
+                      ))}
                     </div>
-                  );
-                })}
-              </div>
-            )}
-
-            <div className="flex flex-wrap gap-x-4 gap-y-2 mt-3 pt-3 border-t border-[#e5ece8] text-xs text-[#607368]">
-              {['Pending', 'Accepted', 'In Queue', 'In Treatment', 'Completed', 'Rejected'].map(status => (
-                <span key={status} className="inline-flex items-center gap-1.5">
-                  <span className={`w-2.5 h-2.5 rounded-sm border-l-[3px] ${appointmentStatusColor(status)}`} />{status}
-                </span>
-              ))}
+                  </div>
+                );
+              })}
             </div>
           </div>
         </section>
       )}
 
-      {(currentView === 'services' || !currentView) && (
-        <div className="h-full grid grid-cols-12 gap-6 overflow-hidden">
-          
+      {currentView === 'services' && (
+        <div className="h-full grid grid-cols-12 gap-6 overflow-hidden p-2">
           {/* Left Form: Add / Edit Service */}
           <div className="col-span-4 bg-white border border-[#d4e2dc] rounded-2xl p-6 shadow-2xs overflow-y-auto flex flex-col">
-            <div className="flex justify-between items-center mb-1">
-              <h3 className="font-black text-lg text-[#13241b]">
-                {formEditingId ? 'Edit Service' : 'Add Clinic Service'}
-              </h3>
-              {formEditingId && (
-                <span className="text-[10px] bg-amber-100 text-amber-800 px-2.5 py-1 rounded-full font-bold uppercase tracking-wider">
-                  Editing Mode Active
-                </span>
-              )}
-            </div>
-            <p className="text-xs text-[#607368] mb-4">
-              {formEditingId ? 'Modify service details below or cancel.' : 'Direct database persistence via Supabase.'}
-            </p>
-
-            {formError && (
-              <div className="bg-red-50 border border-red-200 text-red-700 text-xs p-3 rounded-xl mb-4 font-bold">
-                ⚠️ {formError}
-              </div>
-            )}
-
+            <h3 className="font-black text-lg text-[#13241b] mb-4">
+              {formEditingId ? 'Edit Service' : 'Add Clinic Service'}
+            </h3>
             <form onSubmit={handleFormSubmit} className="space-y-4 flex-1 flex flex-col justify-between">
               <div className="space-y-4">
-                
                 <div>
-                  <label className="block text-xs font-bold text-[#164e43] mb-1">1. Select Category *</label>
-                  <select 
-                    required 
-                    value={selectedCategory} 
-                    onChange={handleCategoryChange} 
-                    className="w-full border border-[#d4e2dc] rounded-xl p-3 text-xs bg-[#f5f7f6] font-bold text-[#13241b] focus:outline-none focus:border-[#164e43]"
-                  >
-                    <option value="">-- Choose Category First --</option>
-                    {categoriesFromDb.map(cat => (
-                      <option key={cat} value={cat}>{cat}</option>
-                    ))}
+                  <label className="block text-xs font-bold text-[#164e43] mb-1">Select Category *</label>
+                  <select required value={selectedCategory} onChange={handleCategoryChange} className="w-full border border-[#d4e2dc] rounded-xl p-3 text-xs bg-[#f5f7f6] font-bold">
+                    <option value="">-- Choose Category --</option>
+                    {categoriesFromDb.map(cat => <option key={cat} value={cat}>{cat}</option>)}
                   </select>
                 </div>
-
-                {!formEditingId && selectedCategory && (
-                  <div>
-                    <label className="block text-xs font-bold text-[#164e43] mb-1">2. Select Offered Service *</label>
-                    <select 
-                      required 
-                      value={isCustomService ? 'CUSTOM' : selectedService} 
-                      onChange={handleServiceChange} 
-                      className="w-full border border-[#d4e2dc] rounded-xl p-3 text-xs bg-[#f5f7f6] font-bold text-[#13241b] focus:outline-none focus:border-[#164e43]"
-                    >
-                      <option value="">-- Choose Service Under Category --</option>
-                      {availableServicesInCategory.map(s => (
-                        <option key={s.id} value={s.service_name}>{s.service_name} (₱{s.price})</option>
-                      ))}
-                      <option value="CUSTOM">+ Custom / Unlisted Service</option>
-                    </select>
-                  </div>
-                )}
-
-                {(isCustomService || formEditingId) && (
-                  <div>
-                    <label className="block text-xs font-bold text-amber-800 mb-1">Service Name *</label>
-                    <input 
-                      type="text" 
-                      required 
-                      value={customServiceName} 
-                      onChange={e => setCustomServiceName(e.target.value)} 
-                      placeholder="e.g. Specialized Laser Scaling" 
-                      className="w-full border border-amber-300 rounded-xl p-3 text-xs bg-amber-50 font-bold text-[#13241b] focus:outline-none focus:border-amber-600" 
-                    />
-                  </div>
-                )}
-
                 <div>
-                  <label className="block text-xs font-bold text-[#607368] mb-1">Service Description</label>
-                  <textarea
-                    rows="3"
-                    value={serviceDescription}
-                    onChange={e => setServiceDescription(e.target.value)}
-                    placeholder="Describe the service for patients"
-                    className="w-full resize-y border border-[#d4e2dc] rounded-xl p-3 text-xs bg-[#f5f7f6] text-[#13241b] focus:outline-none focus:border-[#164e43]"
-                  />
+                  <label className="block text-xs font-bold text-[#164e43] mb-1">Service Name *</label>
+                  <input type="text" required value={customServiceName} onChange={e => setCustomServiceName(e.target.value)} placeholder="Service Name" className="w-full border border-[#d4e2dc] rounded-xl p-3 text-xs bg-[#f5f7f6] font-bold" />
                 </div>
-
-                <div className="grid grid-cols-2 gap-3 pt-1">
+                <div className="grid grid-cols-2 gap-3">
                   <div>
                     <label className="block text-xs font-bold text-[#607368] mb-1">Duration (mins)</label>
-                    <input 
-                      type="number" 
-                      required 
-                      value={duration} 
-                      onChange={e => setDuration(e.target.value)} 
-                      className="w-full border border-[#d4e2dc] rounded-xl p-3 text-xs bg-[#f5f7f6] font-bold focus:outline-none focus:border-[#164e43]" 
-                    />
+                    <input type="number" required value={duration} onChange={e => setDuration(e.target.value)} className="w-full border border-[#d4e2dc] rounded-xl p-3 text-xs bg-[#f5f7f6] font-bold" />
                   </div>
                   <div>
                     <label className="block text-xs font-bold text-[#607368] mb-1">Price (₱) *</label>
-                    <input 
-                      type="number" 
-                      required 
-                      value={price} 
-                      onChange={e => setPrice(e.target.value)} 
-                      placeholder="1500" 
-                      className="w-full border border-[#d4e2dc] rounded-xl p-3 text-xs bg-[#f5f7f6] font-bold focus:outline-none focus:border-[#164e43]" 
-                    />
+                    <input type="number" required value={price} onChange={e => setPrice(e.target.value)} placeholder="1500" className="w-full border border-[#d4e2dc] rounded-xl p-3 text-xs bg-[#f5f7f6] font-bold" />
                   </div>
                 </div>
-
               </div>
-
-              {/* Prominent Form Action Buttons */}
-              <div className="space-y-2 mt-4">
-                <button 
-                  type="submit" 
-                  disabled={!selectedCategory || (!selectedService && !customServiceName) || !price}
-                  className="w-full bg-[#164e43] text-white py-3.5 rounded-xl font-bold text-xs shadow-2xs hover:bg-[#0f362e] transition cursor-pointer disabled:opacity-50"
-                >
-                  {formEditingId ? 'Update Service in Supabase' : '+ Save Service to Supabase'}
-                </button>
-                {formEditingId && (
-                  <button 
-                    type="button" 
-                    onClick={handleCancelFormEdit}
-                    className="w-full bg-gray-200 text-gray-800 py-3 rounded-xl font-bold text-xs hover:bg-gray-300 transition cursor-pointer border border-gray-300"
-                  >
-                    Cancel Editing
-                  </button>
-                )}
-              </div>
+              <button type="submit" className="w-full bg-[#164e43] text-white py-3.5 rounded-xl font-bold text-xs hover:bg-[#0f362e] transition cursor-pointer">
+                {formEditingId ? 'Update Service' : '+ Save Service'}
+              </button>
             </form>
           </div>
 
           {/* Right Catalog Table */}
           <div className="col-span-8 bg-white border border-[#d4e2dc] rounded-2xl p-6 shadow-2xs flex flex-col overflow-hidden">
-            <div className="flex justify-between items-center mb-4">
-              <h3 className="font-black text-lg text-[#13241b]">Manage Services & Pricing</h3>
-              <span className="text-xs bg-[#e3ede6] text-[#164e43] px-3 py-1 rounded-full font-bold">Supabase Connected</span>
-            </div>
-
-            <div className="flex gap-3 mb-4 bg-[#f5f7f6] p-3 rounded-xl border border-[#d4e2dc]">
-              <div className="flex-1">
-                <label className="block text-[10px] font-bold text-[#607368] uppercase mb-1">Search Service</label>
-                <input 
-                  type="text"
-                  value={catalogSearchQuery}
-                  onChange={e => setCatalogSearchQuery(e.target.value)}
-                  placeholder="Search by title..."
-                  className="w-full border border-[#d4e2dc] rounded-lg p-2 text-xs bg-white font-bold text-[#13241b] focus:outline-none focus:border-[#164e43]"
-                />
-              </div>
-              <div className="flex-1">
-                <label className="block text-[10px] font-bold text-[#607368] uppercase mb-1">Filter by Category</label>
-                <select 
-                  value={catalogFilterCategory} 
-                  onChange={e => setCatalogFilterCategory(e.target.value)}
-                  className="w-full border border-[#d4e2dc] rounded-lg p-2 text-xs bg-white font-bold text-[#13241b] focus:outline-none focus:border-[#164e43]"
-                >
-                  <option value="ALL">All Categories</option>
-                  {categoriesFromDb.map(cat => (
-                    <option key={cat} value={cat}>{cat}</option>
-                  ))}
-                </select>
-              </div>
-              <div className="w-40">
-                <label className="block text-[10px] font-bold text-[#607368] uppercase mb-1">Sort by Price</label>
-                <select 
-                  value={catalogSortPrice} 
-                  onChange={e => setCatalogSortPrice(e.target.value)}
-                  className="w-full border border-[#d4e2dc] rounded-lg p-2 text-xs bg-white font-bold text-[#13241b] focus:outline-none focus:border-[#164e43]"
-                >
-                  <option value="">Default Order</option>
-                  <option value="asc">Low to High</option>
-                  <option value="desc">High to Low</option>
-                </select>
-              </div>
-            </div>
-            
+            <h3 className="font-black text-lg text-[#13241b] mb-4">Manage Services & Pricing</h3>
             <div className="flex-1 overflow-y-auto">
               <table className="w-full text-left border-collapse">
                 <thead>
                   <tr className="border-b border-[#d4e2dc] text-[11px] font-bold text-[#607368] uppercase">
                     <th className="py-3 px-2">Service Title</th>
-                    <th className="py-3 px-2">Description</th>
                     <th className="py-3 px-2">Category</th>
-                    <th className="py-3 px-2">Duration</th>
                     <th className="py-3 px-2 text-right">Price (₱)</th>
                     <th className="py-3 px-2 text-center">Actions</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-[#f0f5f2] text-xs">
-                  {filteredAndSortedServices.map(s => {
-                    const isSelectedForEdit = formEditingId === s.id;
-
-                    return (
-                      <tr 
-                        key={s.id} 
-                        onClick={() => handleSelectServiceToEdit(s)}
-                        className={`transition cursor-pointer ${isSelectedForEdit ? 'bg-[#e3ede6]/80 border-l-4 border-l-[#164e43]' : 'hover:bg-[#f8faf9]'}`}
-                        title="Click row to select for editing"
-                      >
-                        <td className="py-3 px-2 font-bold text-[#13241b]">{s.service_name}</td>
-                        <td className="py-3 px-2 text-[#607368] max-w-xs whitespace-pre-wrap">{s.service_description || '—'}</td>
-                        <td className="py-3 px-2">
-                          <span className="bg-[#f0f5f2] border border-[#d4e2dc] text-[#607368] px-2.5 py-0.5 rounded-md font-semibold text-[11px]">
-                            {s.category}
-                          </span>
-                        </td>
-                        <td className="py-3 px-2 text-[#607368]">{s.duration_mins || 30} mins</td>
-                        <td className="py-3 px-2 text-right font-black text-[#164e43]">₱{parseFloat(s.price || 0).toLocaleString()}</td>
-                        <td className="py-3 px-2 text-center whitespace-nowrap" onClick={e => e.stopPropagation()}>
-                          <div className="flex items-center justify-center gap-1.5">
-                            <button 
-                              type="button"
-                              onClick={() => confirmDelete(s.id)}
-                              className="bg-red-50 text-red-600 hover:bg-red-600 hover:text-white px-3 py-1.5 rounded-lg font-bold text-xs transition cursor-pointer shadow-2xs"
-                            >
-                              Remove
-                            </button>
-                          </div>
-                        </td>
-                      </tr>
-                    );
-                  })}
+                  {filteredAndSortedServices.map(s => (
+                    <tr key={s.id} onClick={() => handleSelectServiceToEdit(s)} className="hover:bg-[#f8faf9] cursor-pointer">
+                      <td className="py-3 px-2 font-bold text-[#13241b]">{s.service_name}</td>
+                      <td className="py-3 px-2">{s.category}</td>
+                      <td className="py-3 px-2 text-right font-black text-[#164e43]">₱{parseFloat(s.price || 0).toLocaleString()}</td>
+                      <td className="py-3 px-2 text-center" onClick={e => e.stopPropagation()}>
+                        <button type="button" onClick={() => confirmDelete(s.id)} className="bg-red-50 text-red-600 px-3 py-1.5 rounded-lg font-bold text-xs">Remove</button>
+                      </td>
+                    </tr>
+                  ))}
                 </tbody>
               </table>
             </div>
           </div>
+        </div>
+      )}
 
+      {/* USER MANAGEMENT & DENTIST REGISTRATION VIEW */}
+      {currentView === 'users' && (
+        <div className="flex-1 overflow-y-auto space-y-6 p-2">
+          <div>
+            <h2 className="font-black text-2xl text-[#13241b]">User & Role Management</h2>
+            <p className="text-xs text-[#607368]">Manage system users and provision authorized Dental Practitioners.</p>
+          </div>
+
+          {userMsg && (
+            <div className="bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs p-3.5 rounded-xl font-bold">
+              {userMsg}
+            </div>
+          )}
+
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            <div className="bg-white border border-[#d4e2dc] rounded-2xl p-6 shadow-2xs space-y-4 md:col-span-1">
+              <h3 className="font-black text-base text-[#13241b]">Register New Dentist</h3>
+              <form onSubmit={handleRegisterDentist} className="space-y-3 text-xs">
+                <div>
+                  <label className="block font-bold text-[#13241b] mb-1">Full Name *</label>
+                  <input type="text" required value={newDentistName} onChange={e => setNewDentistName(e.target.value)} placeholder="Dr. Juan Dela Cruz" className="w-full border border-[#d4e2dc] rounded-xl p-2.5 bg-[#f5f7f6]" />
+                </div>
+                <div>
+                  <label className="block font-bold text-[#13241b] mb-1">Username *</label>
+                  <input type="text" required value={newDentistUsername} onChange={e => setNewDentistUsername(e.target.value)} placeholder="drjuan" className="w-full border border-[#d4e2dc] rounded-xl p-2.5 bg-[#f5f7f6]" />
+                </div>
+                <div>
+                  <label className="block font-bold text-[#13241b] mb-1">Password *</label>
+                  <input type="password" required value={newDentistPassword} onChange={e => setNewDentistPassword(e.target.value)} placeholder="••••••••" className="w-full border border-[#d4e2dc] rounded-xl p-2.5 bg-[#f5f7f6]" />
+                </div>
+                <div>
+                  <label className="block font-bold text-[#13241b] mb-1">Email Address *</label>
+                  <input type="email" required value={newDentistEmail} onChange={e => setNewDentistEmail(e.target.value)} placeholder="dentist@clinic.com" className="w-full border border-[#d4e2dc] rounded-xl p-2.5 bg-[#f5f7f6]" />
+                </div>
+                <button type="submit" className="w-full bg-[#164e43] text-white py-3 rounded-xl font-bold hover:bg-[#0f362e] transition cursor-pointer mt-2">
+                  + Create Dentist Account
+                </button>
+              </form>
+            </div>
+
+            <div className="bg-white border border-[#d4e2dc] rounded-2xl p-6 shadow-2xs md:col-span-2 overflow-hidden flex flex-col">
+              <h3 className="font-black text-base text-[#13241b] mb-3">System Accounts Directory</h3>
+              {loadingStaff ? (
+                <div className="py-8 text-center text-xs font-bold text-[#607368]">Loading user accounts...</div>
+              ) : (
+                <div className="flex-1 overflow-y-auto">
+                  <table className="w-full text-left border-collapse text-xs">
+                    <thead>
+                      <tr className="border-b border-[#d4e2dc] text-[11px] font-bold text-[#607368] uppercase">
+                        <th className="py-3 px-2">Name</th>
+                        <th className="py-3 px-2">Username</th>
+                        <th className="py-3 px-2">Role</th>
+                        <th className="py-3 px-2">Email</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-[#f0f5f2]">
+                      {staffUsers.map(u => (
+                        <tr key={u.id} className="hover:bg-[#f8faf9]">
+                          <td className="py-3 px-2 font-bold text-[#13241b]">{u.full_name}</td>
+                          <td className="py-3 px-2 text-[#607368]">{u.username}</td>
+                          <td className="py-3 px-2">
+                            <span className={`px-2 py-0.5 rounded font-bold text-[10px] uppercase ${
+                              u.role === 'manager' ? 'bg-purple-100 text-purple-700' :
+                              u.role === 'dentist' ? 'bg-emerald-100 text-emerald-700' :
+                              u.role === 'assistant' ? 'bg-blue-100 text-blue-700' : 'bg-gray-100 text-gray-700'
+                            }`}>
+                              {u.role}
+                            </span>
+                          </td>
+                          <td className="py-3 px-2 text-[#607368]">{u.email || 'N/A'}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          </div>
         </div>
       )}
 

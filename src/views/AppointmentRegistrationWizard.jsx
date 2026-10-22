@@ -1,5 +1,30 @@
 import React, { useState, useEffect } from 'react';
 import { supabase } from '../lib/supabase';
+import AvailabilityDatePicker, { formatTime } from '../components/AvailabilityDatePicker';
+
+// Dentist's availability is saved by DentistModule under this key (dentist user id = 2)
+const DENTIST_ID = 2;
+const loadAvailability = () => {
+  try {
+    const saved = localStorage.getItem(`dentist_availability_${DENTIST_ID}`);
+    return saved ? JSON.parse(saved) : {};
+  } catch {
+    return {};
+  }
+};
+
+// "8:00 AM" / "1:00 PM" -> minutes since midnight
+const slotToMinutes = (label) => {
+  const m = label.trim().match(/^(\d{1,2}):(\d{2})\s*(AM|PM)$/i);
+  if (!m) return null;
+  let h = Number(m[1]) % 12;
+  if (m[3].toUpperCase() === 'PM') h += 12;
+  return h * 60 + Number(m[2]);
+};
+const timeToMinutes = (t) => {
+  const [h, m] = t.split(':').map(Number);
+  return h * 60 + m;
+};
 
 export default function AppointmentRegistrationWizard({ selectedCategory, onCancel, onComplete }) {
   const [currentStep, setCurrentStep] = useState(1);
@@ -29,6 +54,17 @@ export default function AppointmentRegistrationWizard({ selectedCategory, onCanc
     confirmInfoCorrect: false
   });
 
+  const [availabilityMap, setAvailabilityMap] = useState(loadAvailability);
+
+  // Keep in sync if the dentist updates availability in another tab
+  useEffect(() => {
+    const onStorage = (e) => {
+      if (e.key === `dentist_availability_${DENTIST_ID}`) setAvailabilityMap(loadAvailability());
+    };
+    window.addEventListener('storage', onStorage);
+    return () => window.removeEventListener('storage', onStorage);
+  }, []);
+
   const [formError, setFormError] = useState('');
   const [submitting, setSubmitting] = useState(false);
 
@@ -39,6 +75,16 @@ export default function AppointmentRegistrationWizard({ selectedCategory, onCanc
     '11:00 AM – 12:00 PM',
     '1:00 PM – 2:00 PM'
   ];
+
+  // Only offer slots that fall inside the dentist's time-in / time-out for the chosen date
+  const daySchedule = availabilityMap[formData.appointmentDate];
+  const visibleTimeSlots = daySchedule
+    ? availableTimeSlots.filter((slot) => {
+        const [start, end] = slot.split('–').map((s) => slotToMinutes(s));
+        return start !== null && end !== null &&
+          start >= timeToMinutes(daySchedule.timeIn) && end <= timeToMinutes(daySchedule.timeOut);
+      })
+    : availableTimeSlots;
 
   // Fetch services filtered strictly by selected category
   useEffect(() => {
@@ -201,7 +247,7 @@ export default function AppointmentRegistrationWizard({ selectedCategory, onCanc
           <span className="text-[10px] font-black tracking-widest text-[#164e43] uppercase">ONLINE REGISTRATION</span>
           <h2 className="text-3xl font-black text-[#13241b] tracking-tight">Register a Dental Appointment</h2>
           <p className="text-xs text-[#607368]">
-            Follow the steps below. You can select multiple services under this category[cite: 19].
+            Follow the steps below. You can select multiple services under this category.
           </p>
         </div>
 
@@ -318,16 +364,23 @@ export default function AppointmentRegistrationWizard({ selectedCategory, onCanc
                   {formData.selectedServices.map(s => <li key={s.id}>{s.service_name}</li>)}
                 </ul>
               </div>
-              <div className="space-y-2 max-w-md">
+              <div className="space-y-2">
                 <label className="block text-xs font-bold text-[#13241b]">Appointment date *</label>
-                <input 
-                  type="date"
-                  required
-                  value={formData.appointmentDate}
-                  onChange={(e) => handleChange('appointmentDate', e.target.value)}
-                  className="w-full border border-[#d4e2dc] rounded-xl p-3 text-xs bg-white font-bold text-[#13241b] focus:outline-none focus:border-[#164e43]"
-                />
               </div>
+              <AvailabilityDatePicker
+                availabilityMap={availabilityMap}
+                value={formData.appointmentDate}
+                onChange={(dateKey) => {
+                  // changing the date invalidates a previously chosen time
+                  setFormData(prev => ({ ...prev, appointmentDate: dateKey, appointmentTime: '' }));
+                  setFormError('');
+                }}
+              />
+              {formData.appointmentDate && availabilityMap[formData.appointmentDate] && (
+                <p className="text-xs font-bold text-[#164e43]">
+                  Selected: {formData.appointmentDate} · Dentist available {formatTime(availabilityMap[formData.appointmentDate].timeIn)} – {formatTime(availabilityMap[formData.appointmentDate].timeOut)}
+                </p>
+              )}
               <div className="flex gap-3 pt-4 border-t border-[#f0f5f2]">
                 <button type="button" onClick={handleBack} className="bg-white border border-[#d4e2dc] text-[#13241b] px-6 py-3 rounded-xl font-bold text-xs cursor-pointer">Back</button>
                 <button type="button" onClick={handleNext} className="bg-[#164e43] text-white px-8 py-3 rounded-xl font-bold text-xs cursor-pointer">Continue</button>
@@ -340,7 +393,7 @@ export default function AppointmentRegistrationWizard({ selectedCategory, onCanc
             <div className="space-y-6">
               <h3 className="text-2xl font-black text-[#13241b]">Choose an available time</h3>
               <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
-                {availableTimeSlots.map((slot) => {
+                {visibleTimeSlots.map((slot) => {
                   const isSelected = formData.appointmentTime === slot;
                   return (
                     <button
@@ -356,6 +409,9 @@ export default function AppointmentRegistrationWizard({ selectedCategory, onCanc
                   );
                 })}
               </div>
+              {visibleTimeSlots.length === 0 && (
+                <p className="text-xs font-bold text-gray-500">No time slots fall within the dentist's hours on this date. Please go back and choose another date.</p>
+              )}
               <div className="flex gap-3 pt-4 border-t border-[#f0f5f2]">
                 <button type="button" onClick={handleBack} className="bg-white border border-[#d4e2dc] text-[#13241b] px-6 py-3 rounded-xl font-bold text-xs cursor-pointer">Back</button>
                 <button type="button" onClick={handleNext} className="bg-[#164e43] text-white px-8 py-3 rounded-xl font-bold text-xs cursor-pointer">Continue</button>

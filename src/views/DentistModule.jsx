@@ -51,7 +51,104 @@ export default function DentistModule({
   const [loadingBarangays, setLoadingBarangays] = useState(false);
   const [profileSuccess, setProfileSuccess] = useState('');
 
-  // Fetch practitioner profile from Supabase on mount
+  // Daily Capacity & Scheduler State
+  const [maxDailyPatients, setMaxDailyPatients] = useState(() => {
+    return localStorage.getItem(`dentist_limit_${user?.id || 2}`) || 10;
+  });
+  const [limitSavedMsg, setLimitSavedMsg] = useState('');
+
+  // Interactive Calendar & Availability State
+  const [calendarYear, setCalendarYear] = useState(TODAY.getFullYear());
+  const [calendarMonth, setCalendarMonth] = useState(TODAY.getMonth()); // 0 - 11
+  const [selectedDateKey, setSelectedDateKey] = useState(new Date().toISOString().split('T')[0]);
+  const [timeInInput, setTimeInInput] = useState('08:00');
+  const [timeOutInput, setTimeOutInput] = useState('17:00');
+  
+  const [availabilityMap, setAvailabilityMap] = useState(() => {
+    const saved = localStorage.getItem(`dentist_availability_${user?.id || 2}`);
+    return saved ? JSON.parse(saved) : {};
+  });
+  const [scheduleMsg, setScheduleMsg] = useState('');
+
+  // Time-in / Time-out daily attendance record
+  const [attendanceLog, setAttendanceLog] = useState(() => {
+    const todayKey = new Date().toISOString().split('T')[0];
+    const saved = localStorage.getItem(`dentist_attendance_${user?.id || 2}_${todayKey}`);
+    return saved ? JSON.parse(saved) : { timeIn: null, timeOut: null };
+  });
+
+  const handleSaveLimit = (e) => {
+    e.preventDefault();
+    localStorage.setItem(`dentist_limit_${user?.id || 2}`, maxDailyPatients);
+    setLimitSavedMsg('Daily patient capacity limit updated successfully!');
+    setTimeout(() => setLimitSavedMsg(''), 4000);
+  };
+
+  // Save availability for a specific selected date
+  const handleSaveSingleDayAvailability = (e) => {
+    e.preventDefault();
+    if (!selectedDateKey) return;
+
+    const updated = {
+      ...availabilityMap,
+      [selectedDateKey]: { timeIn: timeInInput, timeOut: timeOutInput, active: true }
+    };
+    setAvailabilityMap(updated);
+    localStorage.setItem(`dentist_availability_${user?.id || 2}`, JSON.stringify(updated));
+    setScheduleMsg(`Availability saved for ${selectedDateKey} (${timeInInput} - ${timeOutInput})!`);
+    setTimeout(() => setScheduleMsg(''), 4000);
+  };
+
+  // Apply availability to all matching weekdays of the current month
+  const handleApplyToAllWeekdayInMonth = (targetDayOfWeek) => {
+    const daysInMonth = new Date(calendarYear, calendarMonth + 1, 0).getDate();
+    const updated = { ...availabilityMap };
+    let count = 0;
+
+    for (let d = 1; d <= daysInMonth; d++) {
+      const dt = new Date(calendarYear, calendarMonth, d);
+      if (dt.getDay() === targetDayOfWeek) {
+        const yyyy = dt.getFullYear();
+        const mm = String(dt.getMonth() + 1).padStart(2, '0');
+        const dd = String(dt.getDate()).padStart(2, '0');
+        const dateStr = `${yyyy}-${mm}-${dd}`;
+
+        updated[dateStr] = { timeIn: timeInInput, timeOut: timeOutInput, active: true };
+        count++;
+      }
+    }
+
+    setAvailabilityMap(updated);
+    localStorage.setItem(`dentist_availability_${user?.id || 2}`, JSON.stringify(updated));
+    const dayNames = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+    setScheduleMsg(`Applied ${timeInInput} - ${timeOutInput} to all ${dayNames[targetDayOfWeek]}s in ${MONTHS[calendarMonth]} (${count} days updated)!`);
+    setTimeout(() => setScheduleMsg(''), 4000);
+  };
+
+  const handleRemoveAvailability = (dateStr) => {
+    const updated = { ...availabilityMap };
+    delete updated[dateStr];
+    setAvailabilityMap(updated);
+    localStorage.setItem(`dentist_availability_${user?.id || 2}`, JSON.stringify(updated));
+  };
+
+  const handleClockIn = () => {
+    const nowTime = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: true });
+    const todayKey = new Date().toISOString().split('T')[0];
+    const newLog = { ...attendanceLog, timeIn: nowTime };
+    setAttendanceLog(newLog);
+    localStorage.setItem(`dentist_attendance_${user?.id || 2}_${todayKey}`, JSON.stringify(newLog));
+  };
+
+  const handleClockOut = () => {
+    const nowTime = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: true });
+    const todayKey = new Date().toISOString().split('T')[0];
+    const newLog = { ...attendanceLog, timeOut: nowTime };
+    setAttendanceLog(newLog);
+    localStorage.setItem(`dentist_attendance_${user?.id || 2}_${todayKey}`, JSON.stringify(newLog));
+  };
+
+  // Fetch practitioner profile and PSGC data from Supabase on mount
   useEffect(() => {
     async function fetchDentistProfile() {
       const targetId = user?.id || 2;
@@ -148,8 +245,6 @@ export default function DentistModule({
 
   const dentistName = `${firstName} ${middleName ? middleName + ' ' : ''}${lastName}`.trim();
   const assignedAppointments = appointments.filter(a => a.assigned_dentist === dentistName || !a.assigned_dentist);
-
-  // Metrics calculation
   const totalPatients = assignedAppointments.length;
   const pendingPatients = assignedAppointments.filter(a => a.status === 'Pending' || a.status === 'Checked-in').length;
   const completedPatients = assignedAppointments.filter(a => a.status === 'Completed').length;
@@ -163,16 +258,11 @@ export default function DentistModule({
     return matchesSearch && matchesService && matchesStatus && matchesDate;
   });
 
-  // Mark patient procedure as completed in Supabase
   const handleMarkAsDone = async (appointmentId) => {
     const confirmed = window.confirm("Are you sure you want to mark this procedure as completed?");
     if (!confirmed) return;
-
     if (updateAppointmentStatus) {
       await updateAppointmentStatus(appointmentId, 'Completed');
-      alert("Patient procedure marked as Completed!");
-    } else {
-      alert("Error: updateAppointmentStatus function is missing from props.");
     }
   };
 
@@ -180,11 +270,8 @@ export default function DentistModule({
     const action = status === 'Accepted' ? 'accept' : 'reject';
     const confirmed = window.confirm(`Are you sure you want to ${action} this appointment?`);
     if (!confirmed) return;
-
     if (updateAppointmentStatus) {
       await updateAppointmentStatus(appointmentId, status);
-    } else {
-      alert("Error: updateAppointmentStatus function is missing from props.");
     }
   };
 
@@ -232,67 +319,293 @@ export default function DentistModule({
   const isMaxYear = Number(birthYear) === MAX_YEAR;
   const isMaxMonth = isMaxYear && Number(birthMonth) === MAX_MONTH;
 
+  // Calendar generation helpers
+  const firstDayIndex = new Date(calendarYear, calendarMonth, 1).getDay();
+  const adjustedFirstDayIndex = (firstDayIndex + 6) % 7;
+  const totalDaysInMonth = new Date(calendarYear, calendarMonth + 1, 0).getDate();
+
+  const calendarCells = [];
+  for (let i = 0; i < adjustedFirstDayIndex; i++) {
+    calendarCells.push(null);
+  }
+  for (let d = 1; d <= totalDaysInMonth; d++) {
+    const dt = new Date(calendarYear, calendarMonth, d);
+    const yyyy = dt.getFullYear();
+    const mm = String(dt.getMonth() + 1).padStart(2, '0');
+    const dd = String(dt.getDate()).padStart(2, '0');
+    calendarCells.push({ dayNum: d, dateStr: `${yyyy}-${mm}-${dd}` });
+  }
+
+  const weekHeaderDays = [
+    { label: 'Mon', index: 1 },
+    { label: 'Tue', index: 2 },
+    { label: 'Wed', index: 3 },
+    { label: 'Thu', index: 4 },
+    { label: 'Fri', index: 5 },
+    { label: 'Sat', index: 6 },
+    { label: 'Sun', index: 0 }
+  ];
+
   return (
-    <div className="h-full w-full bg-white border border-[#d4e2dc] rounded-2xl p-6 shadow-2xs flex flex-col overflow-hidden">
+    <div className="h-full w-full bg-[#F7F8F5] border border-[#d4e2dc] rounded-2xl p-6 shadow-2xs flex flex-col overflow-y-auto">
       
       {/* 1. DASHBOARD VIEW */}
       {currentView === 'dashboard' && (
-        <div className="flex-1 overflow-y-auto space-y-6">
-          <div>
-            <h2 className="font-black text-2xl text-[#13241b]">Dentist Dashboard</h2>
-            <p className="text-xs text-[#607368]">Overview of your patient load and clinical metrics.</p>
+        <div className="space-y-6">
+          <div className="flex justify-between items-center">
+            <div>
+              <h2 className="font-black text-2xl text-[#13241b]">Dentist Dashboard & Attendance</h2>
+              <p className="text-xs text-[#607368]">Overview of your patient load and daily shift time tracking.</p>
+            </div>
+
+            <div className="bg-white border border-[#d4e2dc] px-4 py-3 rounded-2xl flex items-center gap-4 shadow-2xs">
+              <div>
+                <span className="text-[10px] text-[#607368] font-bold uppercase tracking-wider block">Today's Shift</span>
+                <span className="text-xs font-bold text-[#13241b]">
+                  In: {attendanceLog.timeIn || '—'} | Out: {attendanceLog.timeOut || '—'}
+                </span>
+              </div>
+              <div className="flex gap-2">
+                <button 
+                  type="button" 
+                  onClick={handleClockIn}
+                  disabled={attendanceLog.timeIn !== null}
+                  className="bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white px-3 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer shadow-2xs"
+                >
+                  Time-In
+                </button>
+                <button 
+                  type="button" 
+                  onClick={handleClockOut}
+                  disabled={attendanceLog.timeIn === null || attendanceLog.timeOut !== null}
+                  className="bg-amber-600 hover:bg-amber-700 disabled:opacity-50 text-white px-3 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer shadow-2xs"
+                >
+                  Time-Out
+                </button>
+              </div>
+            </div>
           </div>
 
           <div className="grid grid-cols-3 gap-6">
-            <div className="bg-[#f8faf9] border border-[#d4e2dc] rounded-2xl p-6 shadow-2xs">
+            <div className="bg-white border border-[#d4e2dc] rounded-2xl p-6 shadow-2xs">
               <p className="text-xs font-bold text-[#607368] uppercase tracking-wider">Total Patients Assigned</p>
               <h3 className="text-4xl font-black text-[#164e43] mt-3">{totalPatients}</h3>
             </div>
-            <div className="bg-[#f8faf9] border border-[#d4e2dc] rounded-2xl p-6 shadow-2xs">
+            <div className="bg-white border border-[#d4e2dc] rounded-2xl p-6 shadow-2xs">
               <p className="text-xs font-bold text-[#607368] uppercase tracking-wider">Pending / Waiting Patients</p>
               <h3 className="text-4xl font-black text-amber-600 mt-3">{pendingPatients}</h3>
             </div>
-            <div className="bg-[#f8faf9] border border-[#d4e2dc] rounded-2xl p-6 shadow-2xs">
+            <div className="bg-white border border-[#d4e2dc] rounded-2xl p-6 shadow-2xs">
               <p className="text-xs font-bold text-[#607368] uppercase tracking-wider">Completed Procedures</p>
               <h3 className="text-4xl font-black text-emerald-600 mt-3">{completedPatients}</h3>
             </div>
           </div>
 
-          <div className="border-t border-[#d4e2dc] pt-6">
-            <h4 className="font-black text-base text-[#13241b] mb-4">Recent Patient Queue</h4>
-            <table className="w-full text-left border-collapse">
-              <thead>
-                <tr className="border-b border-[#d4e2dc] text-[11px] font-bold text-[#607368] uppercase">
-                  <th className="py-3 px-2">Patient Name</th>
-                  <th className="py-3 px-2">Service</th>
-                  <th className="py-3 px-2">Schedule</th>
-                  <th className="py-3 px-2 text-right">Status</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-[#f0f5f2] text-xs">
-                {assignedAppointments.slice(0, 5).map(a => (
-                  <tr key={a.id} className="hover:bg-[#f8faf9]">
-                    <td className="py-3 px-2 font-bold text-[#13241b]">{a.patient_name}</td>
-                    <td className="py-3 px-2 text-[#607368]">{a.service_name}</td>
-                    <td className="py-3 px-2">{a.appointment_date} @ {a.appointment_time}</td>
-                    <td className="py-3 px-2 text-right">
-                      <span className={`px-2.5 py-0.5 rounded-md font-bold text-[11px] ${
-                        a.status === 'Completed' ? 'bg-emerald-100 text-emerald-700' : 'bg-[#e3ede6] text-[#164e43]'
-                      }`}>
-                        {a.status}
-                      </span>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+          <div className="bg-white border border-[#d4e2dc] rounded-2xl p-6 shadow-2xs max-w-xl space-y-4">
+            <div>
+              <h4 className="font-black text-base text-[#13241b]">Clinic Admittance & Daily Capacity Scheduler</h4>
+              <p className="text-xs text-[#607368]">Set the maximum number of patient appointments you can admit per day.</p>
+            </div>
+
+            {limitSavedMsg && (
+              <div className="bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs p-3 rounded-xl font-bold">
+                ✓ {limitSavedMsg}
+              </div>
+            )}
+
+            <form onSubmit={handleSaveLimit} className="space-y-3 text-xs">
+              <div>
+                <label className="block font-bold text-[#13241b] mb-1">Max Patients Admitted Per Day</label>
+                <input 
+                  type="number" 
+                  min="1" 
+                  max="50"
+                  value={maxDailyPatients}
+                  onChange={e => setMaxDailyPatients(e.target.value)}
+                  className="w-full border border-[#d4e2dc] rounded-xl p-3 bg-white font-bold text-[#13241b]"
+                />
+              </div>
+              <button 
+                type="submit" 
+                className="bg-[#164e43] text-white px-5 py-2.5 rounded-xl font-bold hover:bg-[#0f362e] transition cursor-pointer"
+              >
+                Save Capacity Limit
+              </button>
+            </form>
           </div>
         </div>
       )}
 
-      {/* 2. PATIENT LOGS VIEW */}
+      {/* 2. SCHEDULER & INTERACTIVE CALENDAR VIEW */}
+      {currentView === 'scheduler' && (
+        <div className="space-y-6">
+          <div className="flex justify-between items-center">
+            <div>
+              <h2 className="font-black text-2xl text-[#13241b]">Practitioner Availability Calendar</h2>
+              <p className="text-xs text-[#607368]">Click any date cell to configure hours, or click weekday headers to apply schedule for the whole month.</p>
+            </div>
+            <div className="flex items-center gap-3 bg-white border border-[#d4e2dc] px-4 py-2 rounded-2xl shadow-2xs">
+              <button 
+                type="button" 
+                onClick={() => {
+                  if (calendarMonth === 0) { setCalendarMonth(11); setCalendarYear(calendarYear - 1); }
+                  else { setCalendarMonth(calendarMonth - 1); }
+                }}
+                className="font-black text-[#164e43] px-2 py-1 hover:bg-[#f5f7f6] rounded-lg cursor-pointer"
+              >
+                ‹
+              </button>
+              <span className="font-black text-xs text-[#13241b]">{MONTHS[calendarMonth]} {calendarYear}</span>
+              <button 
+                type="button" 
+                onClick={() => {
+                  if (calendarMonth === 11) { setCalendarMonth(0); setCalendarYear(calendarYear + 1); }
+                  else { setCalendarMonth(calendarMonth + 1); }
+                }}
+                className="font-black text-[#164e43] px-2 py-1 hover:bg-[#f5f7f6] rounded-lg cursor-pointer"
+              >
+                ›
+              </button>
+            </div>
+          </div>
+
+          {scheduleMsg && (
+            <div className="bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs p-3.5 rounded-xl font-bold">
+              ✓ {scheduleMsg}
+            </div>
+          )}
+
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            {/* Interactive Calendar Grid */}
+            <div className="lg:col-span-2 bg-white border border-[#d4e2dc] rounded-2xl p-6 shadow-2xs space-y-4">
+              <div className="text-xs text-[#607368] font-bold">
+                💡 <span className="underline">Tip:</span> Click a weekday header (e.g. **Mon**) to set that shift time for all Mondays of the month. Click a specific day box to configure just that date.
+              </div>
+
+              <div className="grid grid-cols-7 gap-2 text-center">
+                {weekHeaderDays.map(wd => (
+                  <button
+                    key={wd.label}
+                    type="button"
+                    onClick={() => handleApplyToAllWeekdayInMonth(wd.index)}
+                    title={`Click to set ${timeInInput} - ${timeOutInput} for all ${wd.label}s in ${MONTHS[calendarMonth]}`}
+                    className="bg-[#f0f5f2] hover:bg-[#164e43] hover:text-white text-[#164e43] py-2 rounded-xl text-xs font-black transition cursor-pointer shadow-2xs"
+                  >
+                    {wd.label} ↻
+                  </button>
+                ))}
+              </div>
+
+              <div className="grid grid-cols-7 gap-2">
+                {calendarCells.map((cell, idx) => {
+                  if (!cell) {
+                    return <div key={`empty-${idx}`} className="h-20 bg-gray-50 rounded-xl opacity-40"></div>;
+                  }
+                  const slot = availabilityMap[cell.dateStr];
+                  const isSelected = selectedDateKey === cell.dateStr;
+
+                  return (
+                    <div
+                      key={cell.dateStr}
+                      onClick={() => {
+                        setSelectedDateKey(cell.dateStr);
+                        if (slot) {
+                          setTimeInInput(slot.timeIn);
+                          setTimeOutInput(slot.timeOut);
+                        }
+                      }}
+                      className={`h-20 p-2 rounded-xl border flex flex-col justify-between transition cursor-pointer shadow-2xs ${
+                        isSelected ? 'border-[#164e43] bg-[#e3ede6] ring-2 ring-[#164e43]' :
+                        slot ? 'border-emerald-300 bg-emerald-50' : 'border-[#d4e2dc] bg-white hover:bg-[#f8faf9]'
+                      }`}
+                    >
+                      <div className="flex justify-between items-center text-xs font-black">
+                        <span className={slot ? 'text-emerald-800' : 'text-[#13241b]'}>{cell.dayNum}</span>
+                        {slot && <span className="text-[10px] bg-emerald-200 text-emerald-800 px-1.5 py-0.5 rounded font-bold">Active</span>}
+                      </div>
+                      <div className="text-[10px] text-[#607368] font-semibold truncate">
+                        {slot ? `${slot.timeIn}` : 'Available?'}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Right Panel: Time-In & Time-Out Config */}
+            <div className="bg-white border border-[#d4e2dc] rounded-2xl p-6 shadow-2xs space-y-4 flex flex-col justify-between">
+              <div className="space-y-4">
+                <h3 className="font-black text-base text-[#13241b]">
+                  {selectedDateKey ? `Configuring Date: ${selectedDateKey}` : 'Select a Day on Calendar'}
+                </h3>
+
+                <form onSubmit={handleSaveSingleDayAvailability} className="space-y-3 text-xs">
+                  <div className="grid grid-cols-2 gap-2">
+                    <div>
+                      <label className="block font-bold text-[#13241b] mb-1">Time-In</label>
+                      <input 
+                        type="time"
+                        required
+                        value={timeInInput}
+                        onChange={e => setTimeInInput(e.target.value)}
+                        className="w-full border border-[#d4e2dc] rounded-xl p-3 bg-white font-bold text-[#13241b]"
+                      />
+                    </div>
+                    <div>
+                      <label className="block font-bold text-[#13241b] mb-1">Time-Out</label>
+                      <input 
+                        type="time"
+                        required
+                        value={timeOutInput}
+                        onChange={e => setTimeOutInput(e.target.value)}
+                        className="w-full border border-[#d4e2dc] rounded-xl p-3 bg-white font-bold text-[#13241b]"
+                      />
+                    </div>
+                  </div>
+
+                  <button 
+                    type="submit"
+                    disabled={!selectedDateKey}
+                    className="w-full bg-[#164e43] hover:bg-[#0f362e] disabled:opacity-50 text-white py-3 rounded-xl font-bold transition cursor-pointer mt-2"
+                  >
+                    Save Availability for Date
+                  </button>
+                </form>
+
+                {selectedDateKey && availabilityMap[selectedDateKey] && (
+                  <button
+                    type="button"
+                    onClick={() => handleRemoveAvailability(selectedDateKey)}
+                    className="w-full bg-red-50 hover:bg-red-600 hover:text-white text-red-600 py-2.5 rounded-xl font-bold transition cursor-pointer text-xs"
+                  >
+                    Clear Availability on this Date
+                  </button>
+                )}
+              </div>
+
+              <div className="border-t border-[#d4e2dc] pt-4">
+                <span className="text-[11px] font-bold text-[#607368] block mb-2">Configured Dates Summary</span>
+                <div className="max-h-36 overflow-y-auto space-y-1.5">
+                  {Object.keys(availabilityMap).length > 0 ? (
+                    Object.entries(availabilityMap).map(([dKey, slot]) => (
+                      <div key={dKey} className="text-[11px] bg-[#f8faf9] border border-[#d4e2dc] p-2 rounded-xl flex justify-between items-center">
+                        <span className="font-bold text-[#13241b]">{dKey}</span>
+                        <span className="text-[#607368]">{slot.timeIn} - {slot.timeOut}</span>
+                      </div>
+                    ))
+                  ) : (
+                    <p className="text-[11px] text-gray-400 italic text-center">No dates set yet.</p>
+                  )}
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 3. PATIENT LOGS VIEW */}
       {currentView === 'logs' && (
-        <div className="flex-1 overflow-y-auto space-y-4 flex flex-col">
+        <div className="space-y-4 flex flex-col">
           <div className="flex justify-between items-center">
             <div>
               <h2 className="font-black text-2xl text-[#13241b]">Patient Logs</h2>
@@ -303,7 +616,7 @@ export default function DentistModule({
             </span>
           </div>
 
-          <div className="grid grid-cols-4 gap-3 bg-[#f8faf9] p-4 rounded-2xl border border-[#d4e2dc]">
+          <div className="grid grid-cols-4 gap-3 bg-white p-4 rounded-2xl border border-[#d4e2dc]">
             <div>
               <label className="block text-[11px] font-bold text-[#607368] mb-1">Search Patient</label>
               <input 
@@ -339,8 +652,6 @@ export default function DentistModule({
                 <option value="Accepted">Accepted</option>
                 <option value="Rejected">Rejected</option>
                 <option value="Checked-in">Checked-in</option>
-                <option value="In Queue">In Queue</option>
-                <option value="In Treatment">In Treatment</option>
                 <option value="Completed">Completed</option>
               </select>
             </div>
@@ -365,7 +676,7 @@ export default function DentistModule({
             </div>
           </div>
 
-          <div className="flex-1 overflow-y-auto">
+          <div className="overflow-y-auto bg-white border border-[#d4e2dc] rounded-2xl p-4">
             <table className="w-full text-left border-collapse">
               <thead>
                 <tr className="border-b border-[#d4e2dc] text-[11px] font-bold text-[#607368] uppercase">
@@ -382,7 +693,7 @@ export default function DentistModule({
                   filteredLogs.map(a => (
                     <tr key={a.id} className="hover:bg-[#f8faf9]">
                       <td className="py-3 px-2 font-bold text-[#13241b]">{a.patient_name}</td>
-                      <td className="py-3 px-2 text-[#607368]">{a.contact_number || 'N/A'}</td>
+                      <td className="py-3 px-2 text-[#607368]">{a.mobile_number || 'N/A'}</td>
                       <td className="py-3 px-2 font-semibold text-[#164e43]">{a.service_name}</td>
                       <td className="py-3 px-2">{a.appointment_date} @ {a.appointment_time}</td>
                       <td className="py-3 px-2">
@@ -436,63 +747,34 @@ export default function DentistModule({
         </div>
       )}
 
-      {/* 3. REPORTS & ANALYTICS VIEW */}
+      {/* 4. REPORTS VIEW */}
       {currentView === 'reports' && (
-        <div className="flex-1 overflow-y-auto space-y-6">
+        <div className="space-y-6">
           <div>
             <h2 className="font-black text-2xl text-[#13241b]">Clinical Reports & Analytics</h2>
             <p className="text-xs text-[#607368]">Performance metrics and procedure breakdowns for your practice.</p>
           </div>
 
           <div className="grid grid-cols-3 gap-6">
-            <div className="bg-[#f8faf9] border border-[#d4e2dc] rounded-2xl p-6 shadow-2xs">
+            <div className="bg-white border border-[#d4e2dc] rounded-2xl p-6 shadow-2xs">
               <p className="text-xs font-bold text-[#607368] uppercase tracking-wider">Completion Rate</p>
               <h3 className="text-4xl font-black text-[#164e43] mt-3">{completionRate}%</h3>
             </div>
-            <div className="bg-[#f8faf9] border border-[#d4e2dc] rounded-2xl p-6 shadow-2xs">
+            <div className="bg-white border border-[#d4e2dc] rounded-2xl p-6 shadow-2xs">
               <p className="text-xs font-bold text-[#607368] uppercase tracking-wider">Total Completed</p>
               <h3 className="text-4xl font-black text-emerald-600 mt-3">{completedPatients}</h3>
             </div>
-            <div className="bg-[#f8faf9] border border-[#d4e2dc] rounded-2xl p-6 shadow-2xs">
+            <div className="bg-white border border-[#d4e2dc] rounded-2xl p-6 shadow-2xs">
               <p className="text-xs font-bold text-[#607368] uppercase tracking-wider">Pending Procedures</p>
               <h3 className="text-4xl font-black text-amber-600 mt-3">{pendingPatients}</h3>
-            </div>
-          </div>
-
-          <div className="border-t border-[#d4e2dc] pt-6">
-            <h4 className="font-black text-base text-[#13241b] mb-4">Service Breakdown Summary</h4>
-            <div className="bg-[#f8faf9] border border-[#d4e2dc] rounded-2xl p-4">
-              <table className="w-full text-left border-collapse text-xs">
-                <thead>
-                  <tr className="border-b border-[#d4e2dc] text-[11px] font-bold text-[#607368] uppercase">
-                    <th className="py-3 px-2">Service Name</th>
-                    <th className="py-3 px-2 text-center">Total Requests</th>
-                    <th className="py-3 px-2 text-right">Status Ratio</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-[#f0f5f2]">
-                  {services.map(s => {
-                    const count = assignedAppointments.filter(a => a.service_name === s.service_name).length;
-                    return (
-                      <tr key={s.id} className="hover:bg-white">
-                        <td className="py-3 px-2 font-bold text-[#13241b]">{s.service_name}</td>
-                        <td className="py-3 px-2 text-center font-semibold text-[#164e43]">{count}</td>
-                        <td className="py-3 px-2 text-right text-gray-500">
-                          {totalPatients > 0 ? `${Math.round((count / totalPatients) * 100)}% of workload` : '0%'}
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
             </div>
           </div>
         </div>
       )}
 
-      {/* 4. PROFILE VIEW */}
+      {/* 5. PROFILE VIEW */}
       {currentView === 'profile' && (
-        <div className="flex-1 overflow-y-auto space-y-6">
+        <div className="space-y-6">
           <div className="flex justify-between items-center">
             <div>
               <h2 className="font-black text-2xl text-[#13241b]">Dentist Profile</h2>
@@ -515,7 +797,7 @@ export default function DentistModule({
           )}
 
           {!isEditingProfile ? (
-            <div className="bg-[#f8faf9] border border-[#d4e2dc] rounded-2xl p-6 max-w-2xl space-y-4 text-xs">
+            <div className="bg-white border border-[#d4e2dc] rounded-2xl p-6 max-w-2xl space-y-4 text-xs shadow-2xs">
               <div className="grid grid-cols-3 gap-4">
                 <div>
                   <span className="font-bold text-[#607368] block">First Name:</span>
@@ -555,49 +837,49 @@ export default function DentistModule({
               </div>
             </div>
           ) : (
-            <form onSubmit={handleProfileSave} className="bg-[#f8faf9] border border-[#d4e2dc] rounded-2xl p-6 max-w-2xl space-y-4 text-xs">
+            <form onSubmit={handleProfileSave} className="bg-white border border-[#d4e2dc] rounded-2xl p-6 max-w-2xl space-y-4 text-xs shadow-2xs">
               <div className="grid grid-cols-3 gap-3">
                 <div>
                   <label className="block font-bold text-[#607368] mb-1">First Name *</label>
-                  <input type="text" required value={firstName} onChange={e => setFirstName(e.target.value)} className="w-full border border-[#d4e2dc] rounded-xl p-2.5 bg-white" />
+                  <input type="text" required value={firstName} onChange={e => setFirstName(e.target.value)} className="w-full border border-[#d4e2dc] rounded-xl p-2.5 bg-[#f5f7f6]" />
                 </div>
                 <div>
                   <label className="block font-bold text-[#607368] mb-1">Last Name *</label>
-                  <input type="text" required value={lastName} onChange={e => setLastName(e.target.value)} className="w-full border border-[#d4e2dc] rounded-xl p-2.5 bg-white" />
+                  <input type="text" required value={lastName} onChange={e => setLastName(e.target.value)} className="w-full border border-[#d4e2dc] rounded-xl p-2.5 bg-[#f5f7f6]" />
                 </div>
                 <div>
                   <label className="block font-bold text-[#607368] mb-1">Middle Name</label>
-                  <input type="text" value={middleName} onChange={e => setMiddleName(e.target.value)} className="w-full border border-[#d4e2dc] rounded-xl p-2.5 bg-white" />
+                  <input type="text" value={middleName} onChange={e => setMiddleName(e.target.value)} className="w-full border border-[#d4e2dc] rounded-xl p-2.5 bg-[#f5f7f6]" />
                 </div>
               </div>
 
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="block font-bold text-[#607368] mb-1">Username *</label>
-                  <input type="text" required value={username} onChange={e => setUsername(e.target.value)} className="w-full border border-[#d4e2dc] rounded-xl p-2.5 bg-white" />
+                  <input type="text" required value={username} onChange={e => setUsername(e.target.value)} className="w-full border border-[#d4e2dc] rounded-xl p-2.5 bg-[#f5f7f6]" />
                 </div>
                 <div>
                   <label className="block font-bold text-[#607368] mb-1">Email Address *</label>
-                  <input type="email" required value={email} onChange={e => setEmail(e.target.value)} className="w-full border border-[#d4e2dc] rounded-xl p-2.5 bg-white" />
+                  <input type="email" required value={email} onChange={e => setEmail(e.target.value)} className="w-full border border-[#d4e2dc] rounded-xl p-2.5 bg-[#f5f7f6]" />
                 </div>
               </div>
 
               <div>
                 <label className="block font-bold text-[#607368] mb-1">Birthdate *</label>
                 <div className="grid grid-cols-3 gap-2">
-                  <select className="border border-[#d4e2dc] rounded-xl p-2.5 bg-white" value={birthMonth} onChange={e => setBirthMonth(e.target.value)}>
+                  <select className="border border-[#d4e2dc] rounded-xl p-2.5 bg-[#f5f7f6]" value={birthMonth} onChange={e => setBirthMonth(e.target.value)}>
                     <option value="">Month</option>
                     {MONTHS.map((m, i) => (
                       <option key={m} value={i + 1} disabled={isMaxYear && (i + 1) > MAX_MONTH}>{m}</option>
                     ))}
                   </select>
-                  <select className="border border-[#d4e2dc] rounded-xl p-2.5 bg-white" value={birthDay} onChange={e => setBirthDay(e.target.value)}>
+                  <select className="border border-[#d4e2dc] rounded-xl p-2.5 bg-[#f5f7f6]" value={birthDay} onChange={e => setBirthDay(e.target.value)}>
                     <option value="">Day</option>
                     {DAY_OPTIONS.map((d) => (
                       <option key={d} value={d} disabled={isMaxMonth && d > MAX_DAY}>{d}</option>
                     ))}
                   </select>
-                  <select className="border border-[#d4e2dc] rounded-xl p-2.5 bg-white" value={birthYear} onChange={e => setBirthYear(e.target.value)}>
+                  <select className="border border-[#d4e2dc] rounded-xl p-2.5 bg-[#f5f7f6]" value={birthYear} onChange={e => setBirthYear(e.target.value)}>
                     <option value="">Year</option>
                     {BIRTH_YEAR_OPTIONS.map((y) => (
                       <option key={y} value={y}>{y}</option>
@@ -606,7 +888,7 @@ export default function DentistModule({
                 </div>
               </div>
 
-              <div className="bg-white border border-[#d4e2dc] rounded-2xl p-4 space-y-3">
+              <div className="bg-[#f5f7f6] border border-[#d4e2dc] rounded-2xl p-4 space-y-3">
                 <span className="font-bold text-[#164e43] block">Address Information</span>
                 <div className="grid grid-cols-2 gap-3">
                   <div>
