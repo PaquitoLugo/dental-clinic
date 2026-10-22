@@ -16,7 +16,11 @@ function DentalPortalApp() {
   });
 
   // Active navigation view for users with multiple tabs (like Dentist)
-  const [currentView, setCurrentView] = useState('dashboard');
+  const [currentView, setCurrentView] = useState(() =>
+    authenticatedUser && (authenticatedUser.id === 4 || authenticatedUser.role === 'patient')
+      ? 'services'
+      : 'dashboard'
+  );
 
   // Handle sign-in callback
   const handleLoginSuccess = (role, fullName, id) => {
@@ -29,7 +33,7 @@ function DentalPortalApp() {
     const userData = { id, role: mappedRole, name: fullName };
     localStorage.setItem('dental_portal_user', JSON.stringify(userData));
     setAuthenticatedUser(userData);
-    setCurrentView('dashboard');
+    setCurrentView(mappedRole === 'patient' ? 'services' : 'dashboard');
   };
 
   // Handle logout with confirmation prompt
@@ -79,7 +83,7 @@ function DentalPortalApp() {
           </div>
 
           {/* Navigation Links based on Role */}
-          <nav className="space-y-2">
+          <nav className="flex flex-col gap-2">
             {isManager && (
               <>
                 <button onClick={() => setCurrentView('dashboard')} className={`w-full text-left px-4 py-3 rounded-xl font-bold text-xs transition cursor-pointer ${currentView === 'dashboard' ? 'bg-[#164e43] text-white' : 'text-[#607368] hover:bg-[#f5f7f6]'}`}>
@@ -148,7 +152,7 @@ function DentalPortalApp() {
                 </button>
                 <button
                   onClick={() => setCurrentView('services')}
-                  className={`w-full flex items-center px-4 py-3 rounded-xl font-bold text-xs transition cursor-pointer ${
+                  className={`w-full flex items-center px-4 py-3 rounded-xl -order-1 font-bold text-xs transition cursor-pointer ${
                     currentView === 'services'
                       ? 'bg-[#164e43] text-white'
                       : 'text-[#607368] hover:bg-[#f5f7f6]'
