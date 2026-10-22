@@ -176,6 +176,18 @@ export default function DentistModule({
     }
   };
 
+  const handleAppointmentDecision = async (appointmentId, status) => {
+    const action = status === 'Accepted' ? 'accept' : 'reject';
+    const confirmed = window.confirm(`Are you sure you want to ${action} this appointment?`);
+    if (!confirmed) return;
+
+    if (updateAppointmentStatus) {
+      await updateAppointmentStatus(appointmentId, status);
+    } else {
+      alert("Error: updateAppointmentStatus function is missing from props.");
+    }
+  };
+
   const handleProfileSave = async (e) => {
     e.preventDefault();
     setProfileSuccess('');
@@ -324,7 +336,11 @@ export default function DentistModule({
               >
                 <option value="All">All Statuses</option>
                 <option value="Pending">Pending</option>
+                <option value="Accepted">Accepted</option>
+                <option value="Rejected">Rejected</option>
                 <option value="Checked-in">Checked-in</option>
+                <option value="In Queue">In Queue</option>
+                <option value="In Treatment">In Treatment</option>
                 <option value="Completed">Completed</option>
               </select>
             </div>
@@ -377,13 +393,30 @@ export default function DentistModule({
                         </span>
                       </td>
                       <td className="py-3 px-2 text-right">
-                        {a.status !== 'Completed' ? (
+                        {a.status === 'Pending' ? (
+                          <div className="flex justify-end gap-2">
+                            <button
+                              onClick={() => handleAppointmentDecision(a.id, 'Accepted')}
+                              className="bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-1.5 rounded-xl font-bold text-[11px] transition cursor-pointer shadow-2xs"
+                            >
+                              Accept
+                            </button>
+                            <button
+                              onClick={() => handleAppointmentDecision(a.id, 'Rejected')}
+                              className="bg-white border border-red-200 hover:bg-red-50 text-red-700 px-3 py-1.5 rounded-xl font-bold text-[11px] transition cursor-pointer"
+                            >
+                              Reject
+                            </button>
+                          </div>
+                        ) : a.status !== 'Completed' && a.status !== 'Rejected' ? (
                           <button
                             onClick={() => handleMarkAsDone(a.id)}
                             className="bg-[#164e43] hover:bg-[#0f362e] text-white px-3.5 py-1.5 rounded-xl font-bold text-[11px] transition cursor-pointer shadow-2xs"
                           >
                             ✓ Mark as Done
                           </button>
+                        ) : a.status === 'Rejected' ? (
+                          <span className="text-red-600 font-medium italic">Rejected</span>
                         ) : (
                           <span className="text-gray-400 font-medium italic">Finished</span>
                         )}

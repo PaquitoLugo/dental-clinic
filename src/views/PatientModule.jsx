@@ -79,7 +79,10 @@ export default function PatientModule({ services, dentists, createAppointment, a
     setTimeout(() => setSuccessMsg(false), 5000);
   };
 
-  const patientAppointments = appointments.filter(a => a.patient_name.toLowerCase() === user?.name?.toLowerCase() || true);
+  const normalizedPatientName = (user?.name || '').trim().toLowerCase();
+  const patientAppointments = appointments.filter(
+    appointment => normalizedPatientName && (appointment.patient_name || '').trim().toLowerCase() === normalizedPatientName
+  );
 
   return (
     <div className="h-full w-full flex flex-col overflow-hidden">
@@ -227,7 +230,7 @@ export default function PatientModule({ services, dentists, createAppointment, a
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-[#f0f5f2] text-xs">
-                  {appointments.map(a => (
+                  {patientAppointments.map(a => (
                     <tr key={a.id} className="hover:bg-[#f8faf9]">
                       <td className="py-3 px-2 font-bold">{a.patient_name}</td>
                       <td className="py-3 px-2 text-[#607368]">{a.service_name}</td>
@@ -235,6 +238,13 @@ export default function PatientModule({ services, dentists, createAppointment, a
                       <td className="py-3 px-2 text-right"><span className="bg-[#e3ede6] text-[#164e43] px-2 py-0.5 rounded font-bold text-[11px]">{a.status}</span></td>
                     </tr>
                   ))}
+                  {patientAppointments.length === 0 && (
+                    <tr>
+                      <td colSpan="4" className="py-8 text-center text-gray-400 font-medium">
+                        No appointments to display.
+                      </td>
+                    </tr>
+                  )}
                 </tbody>
               </table>
             </div>
@@ -264,6 +274,13 @@ export default function PatientModule({ services, dentists, createAppointment, a
                     <td className="py-3 px-3 text-right"><span className="bg-[#e3ede6] text-[#164e43] px-2.5 py-0.5 rounded font-bold">{a.status}</span></td>
                   </tr>
                 ))}
+                {patientAppointments.length === 0 && (
+                  <tr>
+                    <td colSpan="4" className="py-8 text-center text-gray-400 font-medium">
+                      You don’t have any appointment records yet.
+                    </td>
+                  </tr>
+                )}
               </tbody>
             </table>
           </div>
