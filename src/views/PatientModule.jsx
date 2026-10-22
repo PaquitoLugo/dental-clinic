@@ -16,6 +16,7 @@ export default function PatientModule({ services, dentists, createAppointment, a
   const [successMsg, setSuccessMsg] = useState(false);
   const [serviceSearch, setServiceSearch] = useState('');
   const [serviceCategory, setServiceCategory] = useState('All services');
+  const [appointmentError, setAppointmentError] = useState('');
 
   const mockServices = [
     {
@@ -47,6 +48,33 @@ export default function PatientModule({ services, dentists, createAppointment, a
   // Filter services by selected category
   const filteredServices = services.filter(s => s.category === selectedCategory);
 
+  const getServiceDuration = (serviceName) => {
+    const service = services.find(item => item.service_name === serviceName);
+    const duration = Number(service?.duration_mins);
+    return Number.isFinite(duration) && duration > 0 ? duration : 30;
+  };
+
+  const hasScheduleConflict = () => {
+    const [hours, minutes] = appointmentTime.split(':').map(Number);
+    const startMinutes = hours * 60 + minutes;
+    const endMinutes = startMinutes + getServiceDuration(selectedService);
+
+    return appointments.some(appointment => {
+      if (
+        appointment.status === 'Pending' ||
+        appointment.appointment_date !== appointmentDate ||
+        appointment.assigned_dentist !== selectedDentist
+      ) return false;
+
+      const [existingHours, existingMinutes] = (appointment.appointment_time || '').split(':').map(Number);
+      if (!Number.isFinite(existingHours) || !Number.isFinite(existingMinutes)) return false;
+
+      const existingStart = existingHours * 60 + existingMinutes;
+      const existingEnd = existingStart + getServiceDuration(appointment.service_name);
+      return startMinutes < existingEnd && existingStart < endMinutes;
+    });
+  };
+
   const handleCategoryChange = (e) => {
     setSelectedCategory(e.target.value);
     setSelectedService('');
@@ -55,6 +83,12 @@ export default function PatientModule({ services, dentists, createAppointment, a
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (!patientName || !selectedService || !selectedDentist || !appointmentDate || !appointmentTime) return;
+
+    if (hasScheduleConflict()) {
+      setAppointmentError('That time overlaps another appointment for this dentist. Please choose a different time.');
+      return;
+    }
+    setAppointmentError('');
 
     await createAppointment({
       patient_name: patientName,
@@ -84,6 +118,9 @@ export default function PatientModule({ services, dentists, createAppointment, a
   const normalizedPatientName = (user?.name || '').trim().toLowerCase();
   const patientAppointments = appointments.filter(
     appointment => normalizedPatientName && (appointment.patient_name || '').trim().toLowerCase() === normalizedPatientName
+  );
+  const liveAppointments = appointments.filter(
+    appointment => appointment.status !== 'Pending' && appointment.status !== 'Completed'
   );
 
   return (
@@ -151,6 +188,11 @@ export default function PatientModule({ services, dentists, createAppointment, a
                 ✓ Appointment request submitted successfully!
               </div>
             )}
+            {appointmentError && (
+              <div role="alert" className="bg-red-50 border border-red-200 text-red-700 text-xs p-4 rounded-xl mb-4 font-bold">
+                {appointmentError}
+              </div>
+            )}
 
             <form onSubmit={handleSubmit} className="space-y-4">
               <div>
@@ -161,7 +203,7 @@ export default function PatientModule({ services, dentists, createAppointment, a
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="block text-xs font-bold text-[#607368] mb-1">Contact Number *</label>
-                  <input type="text" required value={contactNumber} onChange={e => setContactNumber(e.target.value)} placeholder="0917XXXXXXX" className="w-full border border-[#d4e2dc] rounded-xl p-3 text-xs bg-[#f5f7f6]" />
+                  <input type="tel" required inputMode="numeric" pattern="09[0-9]{9}" maxLength={11} title="Enter an 11-digit number starting with 09 (for example, 09171234567)." value={contactNumber} onChange={e => setContactNumber(e.target.value)} placeholder="09171234567" className="w-full border border-[#d4e2dc] rounded-xl p-3 text-xs bg-[#f5f7f6]" />
                 </div>
                 <div>
                   <label className="block text-xs font-bold text-[#607368] mb-1">Email</label>
@@ -228,21 +270,23 @@ export default function PatientModule({ services, dentists, createAppointment, a
                     <th className="py-3 px-2">Patient</th>
                     <th className="py-3 px-2">Service</th>
                     <th className="py-3 px-2">Dentist</th>
+                    <th className="py-3 px-2">Date &amp; Time</th>
                     <th className="py-3 px-2 text-right">Status</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-[#f0f5f2] text-xs">
-                  {patientAppointments.map(a => (
+                  {liveAppointments.map(a => (
                     <tr key={a.id} className="hover:bg-[#f8faf9]">
                       <td className="py-3 px-2 font-bold">{a.patient_name}</td>
                       <td className="py-3 px-2 text-[#607368]">{a.service_name}</td>
                       <td className="py-3 px-2 font-semibold text-[#164e43]">{a.assigned_dentist}</td>
+                      <td className="py-3 px-2 text-[#607368]">{a.appointment_date} @ {a.appointment_time}</td>
                       <td className="py-3 px-2 text-right"><span className="bg-[#e3ede6] text-[#164e43] px-2 py-0.5 rounded font-bold text-[11px]">{a.status}</span></td>
                     </tr>
                   ))}
-                  {patientAppointments.length === 0 && (
+                  {liveAppointments.length === 0 && (
                     <tr>
-                      <td colSpan="4" className="py-8 text-center text-gray-400 font-medium">
+                      <td colSpan="5" className="py-8 text-center text-gray-400 font-medium">
                         No appointments to display.
                       </td>
                     </tr>
