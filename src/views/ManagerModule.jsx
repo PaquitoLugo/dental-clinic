@@ -1,5 +1,39 @@
 import React, { useState } from 'react';
 
+const startOfWeek = (date) => {
+  const start = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+  start.setDate(start.getDate() - ((start.getDay() + 6) % 7));
+  return start;
+};
+
+const addDays = (date, days) => {
+  const next = new Date(date);
+  next.setDate(next.getDate() + days);
+  return next;
+};
+
+const dateKey = (date) => {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+};
+
+const formatTime = (time = '') => time.slice(0, 5);
+
+const appointmentStatusColor = (status) => {
+  switch (status) {
+    case 'Pending': return 'border-l-amber-500 bg-amber-50';
+    case 'Accepted': return 'border-l-sky-500 bg-sky-50';
+    case 'In Queue': return 'border-l-[#4c9a84] bg-[#f0f5f2]';
+    case 'In Treatment': return 'border-l-amber-600 bg-amber-50';
+    case 'Completed': return 'border-l-emerald-600 bg-emerald-50';
+    case 'Rejected': return 'border-l-rose-500 bg-rose-50';
+    case 'Checked-in': return 'border-l-blue-500 bg-blue-50';
+    default: return 'border-l-[#9aa9a2] bg-[#f5f7f6]';
+  }
+};
+
 export default function ManagerModule({ services, addService, updateService, deleteService, appointments, currentView }) {
   const [selectedCategory, setSelectedCategory] = useState('');
   const [selectedService, setSelectedService] = useState('');
@@ -8,6 +42,8 @@ export default function ManagerModule({ services, addService, updateService, del
   const [duration, setDuration] = useState(30);
   const [price, setPrice] = useState('');
   const [formError, setFormError] = useState('');
+  const [calendarDate, setCalendarDate] = useState(() => new Date());
+  const [calendarMode, setCalendarMode] = useState('week');
 
   const [catalogSearchQuery, setCatalogSearchQuery] = useState('');
   const [catalogFilterCategory, setCatalogFilterCategory] = useState('ALL');
@@ -158,6 +194,34 @@ export default function ManagerModule({ services, addService, updateService, del
       return sum + (matchedService ? parseFloat(matchedService.price || 0) : 0);
     }, 0) || 0;
 
+  const weekStart = startOfWeek(calendarDate);
+  const calendarDays = calendarMode === 'week'
+    ? Array.from({ length: 7 }, (_, index) => addDays(weekStart, index))
+    : (() => {
+      const monthStart = new Date(calendarDate.getFullYear(), calendarDate.getMonth(), 1);
+      const gridStart = startOfWeek(monthStart);
+      return Array.from({ length: 42 }, (_, index) => addDays(gridStart, index));
+    })();
+  const calendarTitle = calendarMode === 'week'
+    ? `${weekStart.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} – ${addDays(weekStart, 6).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}`
+    : calendarDate.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+  const appointmentsByDate = appointments.reduce((grouped, appointment) => {
+    if (!grouped[appointment.appointment_date]) grouped[appointment.appointment_date] = [];
+    grouped[appointment.appointment_date].push(appointment);
+    return grouped;
+  }, {});
+  Object.values(appointmentsByDate).forEach(dayAppointments => {
+    dayAppointments.sort((a, b) => formatTime(a.appointment_time).localeCompare(formatTime(b.appointment_time)));
+  });
+  const todayKey = dateKey(new Date());
+
+  const moveCalendar = (direction) => {
+    const next = new Date(calendarDate);
+    if (calendarMode === 'week') next.setDate(next.getDate() + (7 * direction));
+    else next.setMonth(next.getMonth() + direction, 1);
+    setCalendarDate(next);
+  };
+
   return (
     <div className="h-full w-full flex flex-col overflow-hidden font-sans relative">
       
@@ -205,6 +269,92 @@ export default function ManagerModule({ services, addService, updateService, del
             </div>
           </div>
         </div>
+      )}
+
+      {currentView === 'calendar' && (
+        <section className="h-full min-h-0 flex flex-col gap-4 overflow-hidden" aria-label="Master appointment calendar">
+          <header className="flex flex-wrap items-center justify-between gap-4">
+            <div>
+              <h2 className="font-black text-2xl text-[#13241b]">Master calendar</h2>
+              <p className="text-sm text-[#607368] mt-1">{calendarTitle}</p>
+            </div>
+            <div className="flex items-center gap-2">
+              <button type="button" onClick={() => moveCalendar(-1)} aria-label="Previous period" className="w-10 h-10 rounded-xl border border-[#d4e2dc] bg-white text-[#164e43] font-bold hover:bg-[#f0f5f2]">‹</button>
+              <button type="button" onClick={() => setCalendarDate(new Date())} className="h-10 px-4 rounded-xl border border-[#d4e2dc] bg-white text-[#164e43] text-sm font-bold hover:bg-[#f0f5f2]">Today</button>
+              <button type="button" onClick={() => moveCalendar(1)} aria-label="Next period" className="w-10 h-10 rounded-xl border border-[#d4e2dc] bg-white text-[#164e43] font-bold hover:bg-[#f0f5f2]">›</button>
+              <div className="ml-2 flex rounded-xl border border-[#d4e2dc] bg-white p-1">
+                {['week', 'month'].map(mode => (
+                  <button key={mode} type="button" onClick={() => setCalendarMode(mode)} aria-pressed={calendarMode === mode} className={`px-3 py-2 rounded-lg text-sm font-bold capitalize transition ${calendarMode === mode ? 'bg-[#e3ede6] text-[#164e43]' : 'text-[#607368] hover:bg-[#f5f7f6]'}`}>
+                    {mode}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </header>
+
+          <div className="flex-1 min-h-0 bg-white border border-[#d4e2dc] rounded-2xl p-4 flex flex-col overflow-hidden">
+            <div className={`grid grid-cols-7 gap-2 mb-2 font-bold text-[#607368] ${calendarMode === 'week' ? 'text-sm' : 'text-xs'}`}>
+              {['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'].map(day => (
+                <div key={day} className="px-2">{day.slice(0, 3)}</div>
+              ))}
+            </div>
+
+            {calendarMode === 'week' ? (
+              <div className="flex-1 min-h-0 grid grid-cols-7 gap-2">
+                {calendarDays.map(day => {
+                  const key = dateKey(day);
+                  const dayAppointments = appointmentsByDate[key] || [];
+                  return (
+                    <div key={key} className={`min-w-0 rounded-xl border p-2 flex flex-col ${key === todayKey ? 'border-[#4c9a84] bg-[#f5f9f7]' : 'border-[#e5ece8] bg-[#f8faf9]'}`}>
+                      <div className={`text-base font-black mb-2 ${key === todayKey ? 'text-[#164e43]' : 'text-[#13241b]'}`}>
+                        {day.toLocaleDateString('en-US', { weekday: 'short', day: 'numeric' })}
+                      </div>
+                      <div className="flex-1 overflow-y-auto space-y-1.5">
+                        {dayAppointments.map(appointment => (
+                          <article key={appointment.id} title={`${appointment.patient_name} · ${appointment.service_name || 'Appointment'} · ${appointment.status}`} className={`border-l-4 rounded-md px-2 py-1.5 text-sm leading-tight text-[#13241b] break-words ${appointmentStatusColor(appointment.status)}`}>
+                            <span className="font-black">{formatTime(appointment.appointment_time)}</span>{' '}
+                            <span>{appointment.patient_name || 'Patient'}</span>
+                          </article>
+                        ))}
+                        {dayAppointments.length === 0 && <span className="text-sm text-[#9aa9a2]">No appointments</span>}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            ) : (
+              <div className="flex-1 min-h-0 grid grid-cols-7 grid-rows-6 gap-2 overflow-y-auto">
+                {calendarDays.map(day => {
+                  const key = dateKey(day);
+                  const dayAppointments = appointmentsByDate[key] || [];
+                  const isCurrentMonth = day.getMonth() === calendarDate.getMonth();
+                  return (
+                    <div key={key} className={`min-h-[90px] min-w-0 rounded-xl border p-2 flex flex-col ${key === todayKey ? 'border-[#4c9a84] bg-[#f5f9f7]' : 'border-[#e9efec] bg-white'} ${isCurrentMonth ? '' : 'opacity-50'}`}>
+                      <div className="text-sm font-black text-[#13241b] mb-1">{day.getDate()}</div>
+                      <div className="space-y-1 overflow-y-auto">
+                        {dayAppointments.slice(0, 3).map(appointment => (
+                          <article key={appointment.id} title={`${appointment.patient_name} · ${appointment.service_name || 'Appointment'} · ${appointment.status}`} className={`border-l-[3px] rounded px-1 py-1 text-xs leading-tight text-[#13241b] break-words ${appointmentStatusColor(appointment.status)}`}>
+                            <span className="font-black">{formatTime(appointment.appointment_time)}</span>{' '}
+                            <span>{appointment.patient_name || 'Patient'}</span>
+                          </article>
+                        ))}
+                        {dayAppointments.length > 3 && <p className="text-xs font-bold text-[#607368] px-1">+{dayAppointments.length - 3} more</p>}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+
+            <div className="flex flex-wrap gap-x-4 gap-y-2 mt-3 pt-3 border-t border-[#e5ece8] text-xs text-[#607368]">
+              {['Pending', 'Accepted', 'In Queue', 'In Treatment', 'Completed', 'Rejected'].map(status => (
+                <span key={status} className="inline-flex items-center gap-1.5">
+                  <span className={`w-2.5 h-2.5 rounded-sm border-l-[3px] ${appointmentStatusColor(status)}`} />{status}
+                </span>
+              ))}
+            </div>
+          </div>
+        </section>
       )}
 
       {(currentView === 'services' || !currentView) && (
