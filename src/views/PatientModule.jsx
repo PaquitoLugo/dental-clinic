@@ -32,9 +32,11 @@ export default function PatientModule({ services, dentists, createAppointment, a
     }
   ];
 
-  const visibleServices = mockServices.filter(service =>
+  const activeServices = services.filter(service => service.is_active);
+  const serviceCategories = [...new Set(activeServices.map(service => service.category).filter(Boolean))];
+  const visibleServices = activeServices.filter(service =>
     (serviceCategory === 'All services' || service.category === serviceCategory) &&
-    service.name.toLowerCase().includes(serviceSearch.toLowerCase())
+    (service.service_name || '').toLowerCase().includes(serviceSearch.toLowerCase())
   );
 
   const todayDateStr = new Date().toISOString().split('T')[0];
@@ -106,7 +108,7 @@ export default function PatientModule({ services, dentists, createAppointment, a
           </header>
 
           <div className="services-filters" aria-label="Filter services by category">
-            {['All services', 'Preventive', 'Restorative', 'Surgery', 'Orthodontics', 'Cosmetic'].map(category => (
+            {['All services', ...serviceCategories].map(category => (
               <button
                 key={category}
                 type="button"
@@ -120,14 +122,14 @@ export default function PatientModule({ services, dentists, createAppointment, a
 
           <div className="services-grid">
             {visibleServices.map(service => (
-              <article className="service-card" key={service.name}>
+              <article className="service-card" key={service.id}>
                 <span className="service-category">{service.category}</span>
-                <h3>{service.name}</h3>
-                <p className="service-description">{service.description}</p>
+                <h3>{service.service_name}</h3>
+                <p className="service-description">{service.service_description || 'Contact the clinic for more details about this service.'}</p>
                 <footer>
                   <div>
                     <span className="starting-label">Starting at</span>
-                    <strong>{service.price}</strong>
+                    <strong>₱{Number(service.price).toLocaleString('en-PH')}</strong>
                   </div>
                   <button type="button" onClick={() => onViewChange('book')}>Book this service</button>
                 </footer>
