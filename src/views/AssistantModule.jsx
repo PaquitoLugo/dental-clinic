@@ -1,6 +1,7 @@
 import React from 'react';
 
 export default function AssistantModule({ appointments, updateAppointmentStatus }) {
+  const queueAppointments = appointments.filter(appointment => appointment.status !== 'Pending');
   
   const handleStatusChange = async (id, status, currentQueue) => {
     const nextQueue = status === 'In Queue' ? (currentQueue || Math.floor(Math.random() * 90) + 10) : currentQueue;
@@ -15,7 +16,7 @@ export default function AssistantModule({ appointments, updateAppointmentStatus 
           <p className="text-xs text-[#607368] mt-1">Check-in patients, assign queue numbers, and manage appointment progression.</p>
         </div>
         <span className="bg-[#e3ede6] text-[#164e43] text-xs font-bold px-4 py-1.5 rounded-full border border-[#d4e2dc]">
-          Active Appointments: {appointments.length}
+          Active Appointments: {queueAppointments.length}
         </span>
       </div>
 
@@ -33,7 +34,7 @@ export default function AssistantModule({ appointments, updateAppointmentStatus 
             </tr>
           </thead>
           <tbody className="divide-y divide-[#f0f5f2] text-xs">
-            {appointments.map(a => (
+            {queueAppointments.map(a => (
               <tr key={a.id} className="hover:bg-[#f8faf9]">
                 <td className="py-3 px-3 font-black text-[#164e43] text-sm">
                   {a.queue_number ? `#${a.queue_number}` : '--'}
@@ -73,6 +74,13 @@ export default function AssistantModule({ appointments, updateAppointmentStatus 
                 </td>
               </tr>
             ))}
+            {queueAppointments.length === 0 && (
+              <tr>
+                <td colSpan="7" className="py-8 text-center text-gray-400 font-medium">
+                  No appointments are ready for the assistant queue.
+                </td>
+              </tr>
+            )}
           </tbody>
         </table>
       </div>
