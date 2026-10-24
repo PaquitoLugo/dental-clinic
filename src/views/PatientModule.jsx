@@ -120,7 +120,7 @@ export default function PatientModule({ services, dentists, createAppointment, a
     appointment => normalizedPatientName && (appointment.patient_name || '').trim().toLowerCase() === normalizedPatientName
   );
   const liveAppointments = appointments.filter(
-    appointment => appointment.status !== 'Pending' && appointment.status !== 'Completed'
+    appointment => appointment.status !== 'Pending' && appointment.status !== 'Completed' && appointment.status !== 'Rejected'
   );
 
   return (
@@ -262,7 +262,7 @@ export default function PatientModule({ services, dentists, createAppointment, a
           </div>
 
           <div className="col-span-6 bg-white border border-[#d4e2dc] rounded-2xl p-6 shadow-2xs flex flex-col overflow-hidden">
-            <h3 className="font-black text-xl text-[#13241b] mb-4">Live Appointment Schedule</h3>
+            <h3 className="font-black text-xl text-[#13241b] mb-4">Currently Scheduled Appointments</h3>
             <div className="flex-1 overflow-y-auto">
               <table className="w-full text-left border-collapse">
                 <thead>
