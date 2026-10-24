@@ -166,7 +166,7 @@ export default function AppointmentRegistrationWizard({ selectedCategory, onCanc
       }
       if (!formData.hasValidId || !formData.noPreviousConsult) {
         setFormError('Please confirm the dental health screening and ID confirmation boxes.');
-        return;
+      //  return;
       }
     }
     setCurrentStep(prev => Math.min(prev + 1, 5));
