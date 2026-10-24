@@ -1,147 +1,15 @@
 import React, { useState, useEffect } from 'react';
 import { supabase } from '../lib/supabase';
+import RegisterModal from '../components/RegisterModal';
 
-const MONTHS = [
-  "January", "February", "March", "April", "May", "June",
-  "July", "August", "September", "October", "November", "December",
-];
-
-const WEEK_DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
-
-// Custom Interactive Patient Availability Calendar Component
-function PatientAvailabilityCalendar({ selectedDentistId, selectedDate, onSelectDate }) {
-  const TODAY = new Date();
-  const [calendarYear, setCalendarYear] = useState(TODAY.getFullYear());
-  const [calendarMonth, setCalendarMonth] = useState(TODAY.getMonth()); // 0-11
-
-  // Retrieve saved availability from localStorage for the selected dentist
-  const savedAvailability = JSON.parse(localStorage.getItem(`dentist_availability_${selectedDentistId || 2}`) || {});
-
-  // Calendar math (Monday start)
-  const firstDayIndex = new Date(calendarYear, calendarMonth, 1).getDay();
-  const adjustedFirstDayIndex = (firstDayIndex + 6) % 7;
-  const totalDaysInMonth = new Date(calendarYear, calendarMonth + 1, 0).getDate();
-
-  const calendarCells = [];
-  for (let i = 0; i < adjustedFirstDayIndex; i++) {
-    calendarCells.push(null);
-  }
-  for (let d = 1; d <= totalDaysInMonth; d++) {
-    const dt = new Date(calendarYear, calendarMonth, d);
-    const yyyy = dt.getFullYear();
-    const mm = String(dt.getMonth() + 1).padStart(2, '0');
-    const dd = String(dt.getDate()).padStart(2, '0');
-    const dateStr = `${yyyy}-${mm}-${dd}`;
-    calendarCells.push({ dayNum: d, dateStr });
-  }
-
-  return (
-    <div className="bg-white border border-[#d4e2dc] rounded-2xl p-6 shadow-2xs space-y-4">
-      {/* Header controls for Month Navigation */}
-      <div className="flex justify-between items-center">
-        <div>
-          <h4 className="font-black text-base text-[#13241b]">Choose an Available Date</h4>
-          <p className="text-xs text-[#607368]">Green active blocks indicate practitioner working hours.</p>
-        </div>
-        <div className="flex items-center gap-3 bg-[#f5f7f6] border border-[#d4e2dc] px-3 py-1.5 rounded-xl shadow-2xs">
-          <button 
-            type="button" 
-            onClick={() => {
-              if (calendarMonth === 0) { setCalendarMonth(11); setCalendarYear(calendarYear - 1); }
-              else { setCalendarMonth(calendarMonth - 1); }
-            }}
-            className="font-black text-[#164e43] px-2 hover:bg-white rounded-lg cursor-pointer"
-          >
-            ‹
-          </button>
-          <span className="font-black text-xs text-[#13241b]">{MONTHS[calendarMonth]} {calendarYear}</span>
-          <button 
-            type="button" 
-            onClick={() => {
-              if (calendarMonth === 11) { setCalendarMonth(0); setCalendarYear(calendarYear + 1); }
-              else { setCalendarMonth(calendarMonth + 1); }
-            }}
-            className="font-black text-[#164e43] px-2 hover:bg-white rounded-lg cursor-pointer"
-          >
-            ›
-          </button>
-        </div>
-      </div>
-
-      {/* Weekday Headers */}
-      <div className="grid grid-cols-7 gap-2 text-center">
-        {WEEK_DAYS.map(wd => (
-          <div key={wd} className="bg-[#f0f5f2] text-[#164e43] py-2 rounded-xl text-xs font-black">
-            {wd}
-          </div>
-        ))}
-      </div>
-
-      {/* Calendar Grid Cells */}
-      <div className="grid grid-cols-7 gap-2">
-        {calendarCells.map((cell, idx) => {
-          if (!cell) {
-            return <div key={`empty-${idx}`} className="h-20 bg-gray-50 rounded-xl opacity-35"></div>;
-          }
-
-          const slot = savedAvailability[cell.dateStr];
-          const isActive = slot && slot.active;
-          const isSelected = selectedDate === cell.dateStr;
-          const isPast = new Date(cell.dateStr) < new Date(new Date().setHours(0,0,0,0));
-
-          return (
-            <div
-              key={cell.dateStr}
-              onClick={() => {
-                if (isPast) {
-                  alert("Cannot select past dates.");
-                  return;
-                }
-                if (!isActive) {
-                  alert("The doctor is not available on this date.");
-                  return;
-                }
-                onSelectDate(cell.dateStr, slot);
-              }}
-              className={`h-20 p-2 rounded-xl border flex flex-col justify-between transition shadow-2xs ${
-                isPast ? 'bg-gray-100 border-gray-200 opacity-40 cursor-not-allowed' :
-                isSelected ? 'border-[#164e43] bg-[#164e43] text-white ring-2 ring-[#164e43] cursor-pointer' :
-                isActive ? 'border-emerald-300 bg-emerald-50 hover:bg-emerald-100 cursor-pointer text-[#13241b]' :
-                'border-[#d4e2dc] bg-white opacity-60 cursor-not-allowed'
-              }`}
-            >
-              <div className="flex justify-between items-center text-xs font-black">
-                <span className={isSelected ? 'text-white' : isActive ? 'text-emerald-900' : 'text-gray-400'}>
-                  {cell.dayNum}
-                </span>
-                {isActive && (
-                  <span className={`text-[9px] px-1 py-0.5 rounded font-bold ${
-                    isSelected ? 'bg-white text-[#164e43]' : 'bg-emerald-200 text-emerald-800'
-                  }`}>
-                    Active
-                  </span>
-                )}
-              </div>
-              <div className={`text-[10px] font-semibold truncate ${isSelected ? 'text-emerald-100' : 'text-[#607368]'}`}>
-                {isActive ? `${slot.timeIn}` : 'Closed'}
-              </div>
-            </div>
-          );
-        })}
-      </div>
-    </div>
-  );
-}
-
-export default function PatientPortal({ onRegisterClick, onCheckAppointmentClick, onLoginClick }) {
+// Public landing page. There is no public booking: patients create an account, the manager verifies it,
+// and appointments are then booked from inside the patient workspace.
+export default function PatientPortal({ onLoginClick }) {
   const [dbServices, setDbServices] = useState([]);
   const [loading, setLoading] = useState(true);
   
-  // States required for dentist availability and booking validation
-  const [dentistsList, setDentistsList] = useState([]);
-  const [selectedDentist, setSelectedDentist] = useState('');
-  const [appointmentDate, setAppointmentDate] = useState('');
-  const [appointmentTime, setAppointmentTime] = useState('');
+  const [isRegisterOpen, setIsRegisterOpen] = useState(false);
+  const [registeredMsg, setRegisteredMsg] = useState('');
 
   // Fetch active dental services directly from Supabase
   useEffect(() => {
@@ -162,35 +30,6 @@ export default function PatientPortal({ onRegisterClick, onCheckAppointmentClick
 
     fetchPortalServices();
   }, []);
-
-  // Fetch list of dentists/staff from Supabase
-  useEffect(() => {
-    async function fetchDentists() {
-      const { data, error } = await supabase
-        .from('staff_users')
-        .select('*');
-      if (data && !error) {
-        setDentistsList(data);
-      }
-    }
-    fetchDentists();
-  }, []);
-
-  // Retrieve selected dentist ID
-  const dentistObj = dentistsList?.find(d => d.full_name === selectedDentist || `${d.first_name || ''} ${d.last_name || ''}`.trim() === selectedDentist);
-  const dentistId = dentistObj?.id || 2;
-  const savedAvailability = JSON.parse(localStorage.getItem(`dentist_availability_${dentistId}`) || '{}');
-
-  // Get time bounds for the selected date
-  const getActiveTimeRange = (dateStr) => {
-    if (savedAvailability[dateStr]) {
-      return {
-        timeIn: savedAvailability[dateStr].timeIn,   // e.g. "08:00"
-        timeOut: savedAvailability[dateStr].timeOut // e.g. "17:00"
-      };
-    }
-    return { timeIn: "08:00", timeOut: "17:00" };
-  };
 
   // Group dental services strictly by category from Supabase
   const servicesByCategory = dbServices.reduce((acc, service) => {
@@ -251,16 +90,10 @@ export default function PatientPortal({ onRegisterClick, onCheckAppointmentClick
         <div>
           <button
             type="button"
-            onClick={() => {
-              if (typeof onLoginClick === 'function') {
-                onLoginClick();
-              } else if (onCheckAppointmentClick) {
-                onCheckAppointmentClick();
-              }
-            }}
+            onClick={() => onLoginClick && onLoginClick()}
             className="bg-white border border-[#d4e2dc] text-[#164e43] hover:bg-[#f5f7f6] px-4 py-2 rounded-xl text-xs font-bold transition cursor-pointer shadow-2xs"
           >
-            Staff / Manager Login
+            Sign In
           </button>
         </div>
       </header>
@@ -275,25 +108,31 @@ export default function PatientPortal({ onRegisterClick, onCheckAppointmentClick
               Dental Clinic Online Appointment
             </h2>
             <p className="text-xs text-[#607368] font-medium mt-2">
-              Select a dental service category, choose your preferred date and time slot, and register your consultation.
+              Browse our services, create a patient account and, once the clinic has verified it, book your appointment online.
             </p>
           </div>
+
+          {registeredMsg && (
+            <div className="bg-green-50 border border-green-200 text-green-700 text-xs p-4 rounded-2xl font-medium">
+              ✓ {registeredMsg}
+            </div>
+          )}
 
           <div className="flex flex-wrap gap-4 pt-2">
             <button
               type="button"
-              onClick={() => onRegisterClick(null)}
+              onClick={() => setIsRegisterOpen(true)}
               className="bg-[#164e43] text-white px-6 py-3.5 rounded-xl font-extrabold text-xs shadow-xs hover:bg-[#0f362e] transition cursor-pointer"
             >
-              Register an appointment
+              Create a patient account
             </button>
 
             <button
               type="button"
-              onClick={onCheckAppointmentClick}
+              onClick={() => onLoginClick && onLoginClick()}
               className="bg-white border border-[#d4e2dc] text-[#13241b] px-6 py-3.5 rounded-xl font-bold text-xs hover:bg-[#f5f7f6] transition cursor-pointer"
             >
-              Check my appointment
+              Sign in to book an appointment
             </button>
           </div>
         </div>
@@ -309,78 +148,6 @@ export default function PatientPortal({ onRegisterClick, onCheckAppointmentClick
           <p className="text-xs text-[#6b7280] italic leading-relaxed pt-1">
             Mangyaring dumating 10 minuto bago ang nakatakdang oras ng appointment. Kung mayroong matinding sakit ng ngipin o pamamaga na nangangailangan ng agarang atensyon, tumawag agad sa aming clinic desk.
           </p>
-        </div>
-
-        {/* Practitioner Selection & Interactive Calendar Grid */}
-        <div className="bg-white border border-[#d4e2dc] rounded-2xl p-8 shadow-2xs space-y-6">
-          <div>
-            <h3 className="font-black text-sm text-[#13241b] uppercase tracking-wider">
-              Choose Dentist & Available Schedule
-            </h3>
-            <p className="text-xs text-[#607368] mt-1">Select your practitioner first to reveal their live interactive shift calendar.</p>
-          </div>
-
-          <div className="space-y-2">
-            <label className="block font-bold text-[#13241b] text-xs">Select Practitioner *</label>
-            <select
-              value={selectedDentist}
-              onChange={(e) => {
-                setSelectedDentist(e.target.value);
-                setAppointmentDate('');
-                setAppointmentTime('');
-              }}
-              className="w-full border border-[#d4e2dc] rounded-xl p-3 bg-white font-bold text-[#13241b] text-xs"
-            >
-              <option value="">-- Choose Practitioner --</option>
-              {dentistsList.map(d => {
-                const name = d.full_name || `${d.first_name || ''} ${d.last_name || ''}`.trim();
-                return <option key={d.id} value={name}>{name}</option>;
-              })}
-            </select>
-          </div>
-
-          {selectedDentist ? (
-            <div className="space-y-4 pt-2">
-              <PatientAvailabilityCalendar 
-                selectedDentistId={dentistObj?.id}
-                selectedDate={appointmentDate}
-                onSelectDate={(dateStr, slot) => {
-                  setAppointmentDate(dateStr);
-                }}
-              />
-
-              {appointmentDate && (
-                <div className="bg-[#f8faf9] border border-[#d4e2dc] p-4 rounded-2xl space-y-2 text-xs">
-                  <div className="font-black text-[#13241b]">Selected Date: {appointmentDate}</div>
-                  <div>
-                    <label className="block font-bold text-[#13241b] mb-1">Appointment Time *</label>
-                    <input 
-                      type="time"
-                      value={appointmentTime}
-                      onChange={(e) => {
-                        const chosenTime = e.target.value;
-                        const { timeIn, timeOut } = getActiveTimeRange(appointmentDate);
-                        if (chosenTime < timeIn || chosenTime > timeOut) {
-                          alert(`Selected time is outside the dentist's working hours (${timeIn} - ${timeOut}) for this date.`);
-                          setAppointmentTime('');
-                          return;
-                        }
-                        setAppointmentTime(chosenTime);
-                      }}
-                      className="w-full border border-[#d4e2dc] rounded-xl p-3 bg-white font-bold text-[#13241b]"
-                    />
-                    <p className="text-[10px] text-[#607368] mt-1">
-                      * Must fall within dentist's shift hours for this date.
-                    </p>
-                  </div>
-                </div>
-              )}
-            </div>
-          ) : (
-            <div className="p-6 bg-[#f8faf9] border border-[#d4e2dc] rounded-xl text-center text-xs text-gray-400 font-medium italic">
-              Please select a practitioner above to view their interactive availability calendar.
-            </div>
-          )}
         </div>
 
         {/* Categorized Card Modules Grid */}
@@ -441,6 +208,12 @@ export default function PatientPortal({ onRegisterClick, onCheckAppointmentClick
         </div>
 
       </main>
+
+      <RegisterModal
+        isOpen={isRegisterOpen}
+        onClose={() => setIsRegisterOpen(false)}
+        onSuccess={() => setRegisteredMsg('Registration submitted! The clinic manager will verify your details. You can sign in once your account has been accepted.')}
+      />
     </div>
   );
 }

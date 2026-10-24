@@ -6,16 +6,15 @@ import DentistModule from './views/DentistModule';
 import ManagerModule from './views/ManagerModule';
 import Login from './views/login';
 import PatientPortal from './views/patientPortal';
-import AppointmentRegistrationWizard from './views/AppointmentRegistrationWizard';
 
 function MainWorkspace({ authenticatedUser, handleLogout }) {
   const contextData = useContext(ClinicContext);
   
-  const [currentView, setCurrentView] = useState(() =>
-    authenticatedUser && (authenticatedUser.id === 4 || authenticatedUser.role === 'patient')
-      ? 'services'
-      : 'dashboard'
-  );
+  const [currentView, setCurrentView] = useState(() => {
+    if (authenticatedUser && (authenticatedUser.id === 4 || authenticatedUser.role === 'patient')) return 'services';
+    if (authenticatedUser && (authenticatedUser.id === 3 || authenticatedUser.role === 'assistant')) return 'queue';
+    return 'dashboard';
+  });
 
   const isManager = authenticatedUser.id === 1 || authenticatedUser.role === 'manager';
   const isDentist = authenticatedUser.id === 2 || authenticatedUser.role === 'dentist';
@@ -105,6 +104,14 @@ function MainWorkspace({ authenticatedUser, handleLogout }) {
       📋 Patient Logs
     </button>
     <button 
+      onClick={() => setCurrentView('toothchart')} 
+      className={`w-full text-left px-4 py-3 rounded-xl font-bold text-xs transition cursor-pointer ${
+        currentView === 'toothchart' ? 'bg-[#164e43] text-white' : 'text-[#607368] hover:bg-[#f5f7f6]'
+      }`}
+    >
+      🦷 Patient Tooth Charts
+    </button>
+    <button 
       onClick={() => setCurrentView('reports')} 
       className={`w-full text-left px-4 py-3 rounded-xl font-bold text-xs transition cursor-pointer ${
         currentView === 'reports' ? 'bg-[#164e43] text-white' : 'text-[#607368] hover:bg-[#f5f7f6]'
@@ -151,6 +158,14 @@ function MainWorkspace({ authenticatedUser, handleLogout }) {
                   <span>My Records</span>
                 </button>
                 <button
+                  onClick={() => setCurrentView('toothchart')}
+                  className={`w-full flex items-center px-4 py-3 rounded-xl font-bold text-xs transition cursor-pointer ${
+                    currentView === 'toothchart' ? 'bg-[#164e43] text-white' : 'text-[#607368] hover:bg-[#f5f7f6]'
+                  }`}
+                >
+                  <span>My Tooth Chart</span>
+                </button>
+                <button
                   onClick={() => setCurrentView('services')}
                   className={`w-full flex items-center px-4 py-3 rounded-xl font-bold text-xs transition cursor-pointer ${
                     currentView === 'services' ? 'bg-[#164e43] text-white' : 'text-[#607368] hover:bg-[#f5f7f6]'
@@ -184,6 +199,7 @@ function MainWorkspace({ authenticatedUser, handleLogout }) {
             {...contextData} 
             updateAppointmentStatus={contextData.updateAppointmentStatus} 
             currentView={currentView} 
+            onViewChange={setCurrentView}
             user={authenticatedUser} 
           />
         )}
@@ -208,7 +224,6 @@ export default function App() {
   });
 
   const [portalView, setPortalView] = useState('portal');
-  const [selectedCategory, setSelectedCategory] = useState(null);
 
   const handleLoginSuccess = (role, fullName, id) => {
     let mappedRole = (role || 'patient').toLowerCase();
@@ -228,7 +243,6 @@ export default function App() {
       localStorage.removeItem('dental_portal_user');
       setAuthenticatedUser(null);
       setPortalView('portal');
-      setSelectedCategory(null);
     }
   };
 
@@ -240,33 +254,7 @@ export default function App() {
         ) : (
           <>
             {portalView === 'portal' && (
-              <PatientPortal 
-                onRegisterClick={(categoryName) => {
-                  setSelectedCategory(categoryName || null);
-                  setPortalView('register');
-                }}
-                onCheckAppointmentClick={() => {
-                  const wantAdmin = window.confirm('Would you like to sign into the staff/manager portal?');
-                  if (wantAdmin) {
-                    setPortalView('login');
-                  }
-                }}
-              />
-            )}
-
-            {portalView === 'register' && (
-              <AppointmentRegistrationWizard 
-                key={selectedCategory || 'all-services'}
-                selectedCategory={selectedCategory}
-                onCancel={() => {
-                  setSelectedCategory(null);
-                  setPortalView('portal');
-                }}
-                onComplete={() => {
-                  setSelectedCategory(null);
-                  setPortalView('portal');
-                }}
-              />
+              <PatientPortal onLoginClick={() => setPortalView('login')} />
             )}
 
             {portalView === 'login' && (

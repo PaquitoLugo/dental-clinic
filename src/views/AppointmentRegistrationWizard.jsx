@@ -25,8 +25,24 @@ const timeToMinutes = (t) => {
   const [h, m] = t.split(':').map(Number);
   return h * 60 + m;
 };
+// "8:00 AM \u2013 9:00 AM" -> "08:00" (24h format used by the rest of the system)
+const slotStart24 = (slot) => {
+  const mins = slotToMinutes(slot.split('\u2013')[0]);
+  return `${String(Math.floor(mins / 60)).padStart(2, '0')}:${String(mins % 60).padStart(2, '0')}`;
+};
+const NON_BLOCKING = ['Rejected', 'Cancelled'];
 
-export default function AppointmentRegistrationWizard({ selectedCategory, onCancel, onComplete }) {
+// Booking is only available to signed-in, verified patients (embedded inside the patient workspace).
+// `patient` is the staff_users row of the logged-in patient; `createAppointment` / `existingAppointments` come from ClinicContext.
+export default function AppointmentRegistrationWizard({
+  selectedCategory,
+  onCancel,
+  onComplete,
+  embedded = false,
+  patient = null,
+  createAppointment = null,
+  existingAppointments = [],
+}) {
   const [currentStep, setCurrentStep] = useState(1);
   const [services, setServices] = useState([]);
   const [loadingServices, setLoadingServices] = useState(true);
@@ -39,6 +55,7 @@ export default function AppointmentRegistrationWizard({ selectedCategory, onCanc
     selectedServices: [],
     appointmentDate: '',
     appointmentTime: '',
+    notes: '',
     firstName: '',
     middleName: '',
     lastName: '',
@@ -52,8 +69,6 @@ export default function AppointmentRegistrationWizard({ selectedCategory, onCanc
     hospitalNumber: '',
     completeAddress: '',
     emergencyContact: '',
-    hasValidId: false,
-    noPreviousConsult: false,
     consentUseInfo: false,
     confirmInfoCorrect: false
   });
@@ -98,6 +113,26 @@ export default function AppointmentRegistrationWizard({ selectedCategory, onCanc
           start >= timeToMinutes(daySchedule.timeIn) && end <= timeToMinutes(daySchedule.timeOut);
       })
     : availableTimeSlots;
+
+  // The dentist the availability calendar belongs to
+  const [dentistName, setDentistName] = useState('');
+  useEffect(() => {
+    supabase.from('staff_users').select('full_name').eq('id', DENTIST_ID).single()
+      .then(({ data }) => { if (data?.full_name) setDentistName(data.full_name); });
+  }, []);
+
+  // Slots already taken on the chosen date (anyone's non-rejected appointment) or already past today
+  const bookedTimes = new Set(
+    (existingAppointments || [])
+      .filter(a => a.appointment_date === formData.appointmentDate && !NON_BLOCKING.includes(a.status))
+      .filter(a => !a.assigned_dentist || !dentistName || a.assigned_dentist === dentistName)
+      .map(a => a.appointment_time)
+  );
+  const todayKeyLocal = (() => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; })();
+  const nowMinutes = new Date().getHours() * 60 + new Date().getMinutes();
+  const isSlotUnavailable = (slot) =>
+    bookedTimes.has(slotStart24(slot)) ||
+    (formData.appointmentDate === todayKeyLocal && slotToMinutes(slot.split('\u2013')[0]) <= nowMinutes);
 
   // Fetch services filtered strictly by selected category
   useEffect(() => {
@@ -159,17 +194,11 @@ export default function AppointmentRegistrationWizard({ selectedCategory, onCanc
       setFormError('Please choose an available time slot.');
       return;
     }
-    if (currentStep === 4) {
-      if (!formData.firstName || !formData.lastName || !formData.birthDate || !formData.sex || !formData.mobileNumber) {
-        setFormError('Please fill in all required patient information fields (*).');
-        return;
-      }
-      if (!formData.hasValidId || !formData.noPreviousConsult) {
-        setFormError('Please confirm the dental health screening and ID confirmation boxes.');
-      //  return;
-      }
+    if (currentStep === 3 && isSlotUnavailable(formData.appointmentTime)) {
+      setFormError('That time slot was just taken. Please choose another one.');
+      return;
     }
-    setCurrentStep(prev => Math.min(prev + 1, 5));
+    setCurrentStep(prev => Math.min(prev + 1, 4));
   };
 
   const handleBack = () => {
@@ -186,41 +215,38 @@ export default function AppointmentRegistrationWizard({ selectedCategory, onCanc
       setFormError('Please check both consent and confirmation boxes to submit.');
       return;
     }
+    if (!patient) {
+      setFormError('Please sign in to your patient account to book an appointment.');
+      return;
+    }
 
     setSubmitting(true);
     setFormError('');
 
     try {
-      const fullName = `${formData.firstName} ${formData.middleName ? formData.middleName + ' ' : ''}${formData.lastName}${formData.suffix ? ' ' + formData.suffix : ''}`.trim();
-      const combinedServiceNames = formData.selectedServices.map(s => s.service_name).join(', ');
-
       const payload = {
-        patient_name: fullName,
-        service_name: combinedServiceNames,
+        patient_name: patient.full_name || patient.name,
+        contact_number: patient.mobile_number || '',
+        email: patient.email || null,
+        service_name: formData.selectedServices.map(s => s.service_name).join(', '),
+        assigned_dentist: dentistName || null,
         appointment_date: formData.appointmentDate,
-        appointment_time: formData.appointmentTime.split('\u2013')[0].trim(),
-        mobile_number: formData.mobileNumber,
-        email: formData.email || null,
-        birth_date: formData.birthDate,
-        sex: formData.sex,
-        city: formData.city || null,
-        province: formData.province || null,
-        complete_address: formData.completeAddress || null,
-        hospital_number: formData.hospitalNumber || null,
-        emergency_contact: formData.emergencyContact || null,
+        appointment_time: slotStart24(formData.appointmentTime),
+        notes: formData.notes || null,
         status: 'Pending'
       };
 
-      const { error } = await supabase
-        .from('appointments')
-        .insert([payload]);
+      if (createAppointment) {
+        await createAppointment(payload);
+      } else {
+        const { error } = await supabase.from('appointments').insert([payload]);
+        if (error) throw error;
+      }
 
-      if (error) throw error;
-
-      alert('Dental appointment successfully submitted to Supabase!');
+      alert('Appointment request submitted! The clinic assistant will review and confirm it.');
       if (onComplete) onComplete();
     } catch (err) {
-      console.error('Error inserting appointment to Supabase:', err);
+      console.error('Error submitting appointment:', err);
       setFormError('Failed to submit appointment: ' + (err.message || 'Check database connection.'));
     } finally {
       setSubmitting(false);
@@ -228,9 +254,10 @@ export default function AppointmentRegistrationWizard({ selectedCategory, onCanc
   };
 
   return (
-    <div className="min-h-screen w-full bg-[#f4f7f6] font-sans text-[#13241b] flex flex-col pb-8">
+    <div className={`${embedded ? 'h-full overflow-y-auto rounded-2xl' : 'min-h-screen'} w-full bg-[#f4f7f6] font-sans text-[#13241b] flex flex-col pb-8`}>
       
-      {/* Header with Clickable Logo */}
+      {/* Header with Clickable Logo (hidden when embedded in the patient workspace) */}
+      {!embedded && (
       <header className="bg-white border-b border-[#e1ebd7] px-3 py-3 sm:px-6 sm:py-4 flex items-center justify-between gap-2 sticky top-0 z-40 shadow-2xs">
         <button
           type="button"
@@ -254,11 +281,12 @@ export default function AppointmentRegistrationWizard({ selectedCategory, onCanc
           &#8592; Cancel / Back to Home
         </button>
       </header>
+      )}
 
         <main className={`flex-1 w-full mx-auto ${currentStep === 1 ? 'max-w-none px-3 sm:px-6 xl:px-10 py-4 flex flex-col gap-3' : 'max-w-4xl px-4 py-8 space-y-6'}`}>
         <div className={`bg-white border border-[#d4e2dc] rounded-2xl shadow-2xs space-y-2 ${currentStep === 1 ? 'px-4 py-3 sm:px-5' : 'p-6'}`}>
           <span className="text-[10px] font-black tracking-widest text-[#164e43] uppercase">ONLINE REGISTRATION</span>
-          <h2 className="text-2xl sm:text-3xl font-black text-[#13241b] tracking-tight">Register a Dental Appointment</h2>
+          <h2 className="text-2xl sm:text-3xl font-black text-[#13241b] tracking-tight">{embedded ? 'Book a Dental Appointment' : 'Register a Dental Appointment'}</h2>
           <p className="text-xs text-[#607368]">
             Follow the steps below. You can select multiple services under this category.
           </p>
@@ -266,11 +294,11 @@ export default function AppointmentRegistrationWizard({ selectedCategory, onCanc
 
         <div className={`bg-white border border-[#d4e2dc] rounded-2xl shadow-2xs ${currentStep === 1 ? 'p-3 sm:p-5' : 'p-5 sm:p-8 space-y-6'}`}>
           <div className="space-y-2">
-            <span className="text-xs font-bold text-[#13241b]">Step {currentStep} of 5</span>
+            <span className="text-xs font-bold text-[#13241b]">Step {currentStep} of 4</span>
             <div className="w-full bg-[#e8f0eb] h-2.5 rounded-full overflow-hidden">
               <div 
                 className="bg-[#164e43] h-full transition-all duration-300 rounded-full" 
-                style={{ width: `${(currentStep / 5) * 100}%` }}
+                style={{ width: `${(currentStep / 4) * 100}%` }}
               />
             </div>
           </div>
@@ -320,7 +348,7 @@ export default function AppointmentRegistrationWizard({ selectedCategory, onCanc
                   <button type="button" onClick={() => setFormData(prev => ({ ...prev, selectedServices: [] }))} className="w-full mt-3 text-[#607368] text-[13px]">Clear selection</button>
                 </aside>
               </div>
-              <div className="mt-3"><button type="button" onClick={onCancel} className="w-full sm:w-auto bg-white border border-[#d4e2dc] text-[#13241b] px-5 py-2.5 rounded-lg font-bold text-[13px] hover:bg-[#f5f7f6]">&#8592; Back to Portal</button></div>
+              {onCancel && <div className="mt-3"><button type="button" onClick={onCancel} className="w-full sm:w-auto bg-white border border-[#d4e2dc] text-[#13241b] px-5 py-2.5 rounded-lg font-bold text-[13px] hover:bg-[#f5f7f6]">&#8592; Back</button></div>}
             </div>
           )}
           {/* STEP 2: Choose Appointment Date */}
@@ -364,16 +392,19 @@ export default function AppointmentRegistrationWizard({ selectedCategory, onCanc
               <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
                 {visibleTimeSlots.map((slot) => {
                   const isSelected = formData.appointmentTime === slot;
+                  const unavailable = isSlotUnavailable(slot);
                   return (
                     <button
                       key={slot}
                       type="button"
+                      disabled={unavailable}
                       onClick={() => handleChange('appointmentTime', slot)}
-                      className={`border rounded-xl p-4 font-bold text-xs text-center transition cursor-pointer ${
-                        isSelected ? 'border-[#164e43] bg-[#164e43] text-white shadow-xs' : 'border-[#d4e2dc] bg-white text-[#13241b]'
+                      className={`border rounded-xl p-4 font-bold text-xs text-center transition ${
+                        unavailable ? 'border-[#e5e7eb] bg-gray-100 text-gray-400 cursor-not-allowed line-through' :
+                        isSelected ? 'border-[#164e43] bg-[#164e43] text-white shadow-xs cursor-pointer' : 'border-[#d4e2dc] bg-white text-[#13241b] cursor-pointer'
                       }`}
                     >
-                      {slot}
+                      {slot}{unavailable && <span className="block text-[10px] no-underline">Not available</span>}
                     </button>
                   );
                 })}
@@ -388,45 +419,8 @@ export default function AppointmentRegistrationWizard({ selectedCategory, onCanc
             </div>
           )}
 
-          {/* STEP 4: Patient Information */}
+          {/* STEP 4: Review & Confirm */}
           {currentStep === 4 && (
-            <div className="space-y-6">
-              <h3 className="text-2xl font-black text-[#13241b]">Enter the patient's information</h3>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs">
-                <div>
-                  <label className="block font-bold text-[#13241b] mb-1">First name *</label>
-                  <input type="text" required value={formData.firstName} onChange={(e) => handleChange('firstName', e.target.value)} className="w-full border border-[#d4e2dc] rounded-xl p-3 bg-white font-semibold" />
-                </div>
-                <div>
-                  <label className="block font-bold text-[#13241b] mb-1">Last name *</label>
-                  <input type="text" required value={formData.lastName} onChange={(e) => handleChange('lastName', e.target.value)} className="w-full border border-[#d4e2dc] rounded-xl p-3 bg-white font-semibold" />
-                </div>
-                <div>
-                  <label className="block font-bold text-[#13241b] mb-1">Birth date *</label>
-                  <input type="date" required value={formData.birthDate} onChange={(e) => handleChange('birthDate', e.target.value)} className="w-full border border-[#d4e2dc] rounded-xl p-3 bg-white font-semibold" />
-                </div>
-                <div>
-                  <label className="block font-bold text-[#13241b] mb-1">Sex *</label>
-                  <select required value={formData.sex} onChange={(e) => handleChange('sex', e.target.value)} className="w-full border border-[#d4e2dc] rounded-xl p-3 bg-white font-semibold">
-                    <option value="">Select</option>
-                    <option value="Male">Male</option>
-                    <option value="Female">Female</option>
-                  </select>
-                </div>
-                <div>
-                  <label className="block font-bold text-[#13241b] mb-1">Mobile number *</label>
-                  <input type="tel" required placeholder="09171234567" value={formData.mobileNumber} onChange={(e) => handleChange('mobileNumber', e.target.value)} className="w-full border border-[#d4e2dc] rounded-xl p-3 bg-white font-semibold" />
-                </div>
-              </div>
-              <div className="flex gap-3 pt-4 border-t border-[#f0f5f2]">
-                <button type="button" onClick={handleBack} className="bg-white border border-[#d4e2dc] text-[#13241b] px-6 py-3 rounded-xl font-bold text-xs cursor-pointer">Back</button>
-                <button type="button" onClick={handleNext} className="bg-[#164e43] text-white px-8 py-3 rounded-xl font-bold text-xs cursor-pointer">Review information</button>
-              </div>
-            </div>
-          )}
-
-          {/* STEP 5: Review & Confirm */}
-          {currentStep === 5 && (
             <div className="space-y-6">
               <h3 className="text-2xl font-black text-[#13241b]">Please review your appointment information</h3>
               <div className="bg-[#f8faf9] border border-[#d4e2dc] rounded-2xl p-6 space-y-4 text-xs">
@@ -438,11 +432,24 @@ export default function AppointmentRegistrationWizard({ selectedCategory, onCanc
                   <span className="font-bold text-[#607368]">Date & Time</span>
                   <span className="font-black text-[#13241b]">{formData.appointmentDate} @ {formData.appointmentTime}</span>
                 </div>
+                <div className="flex justify-between border-b border-[#e5ece8] pb-3">
+                  <span className="font-bold text-[#607368]">Dentist</span>
+                  <span className="font-black text-[#13241b]">{dentistName || 'Clinic dentist'}</span>
+                </div>
+                <div className="flex justify-between border-b border-[#e5ece8] pb-3">
+                  <span className="font-bold text-[#607368]">Estimated total</span>
+                  <span className="font-black text-[#164e43]">&#8369;{selectedTotal.toLocaleString()}</span>
+                </div>
                 <div className="flex justify-between pb-1">
-                  <span className="font-bold text-[#607368]">Patient name</span>
-                  <span className="font-black text-[#13241b]">{formData.firstName} {formData.lastName}</span>
+                  <span className="font-bold text-[#607368]">Patient</span>
+                  <span className="font-black text-[#13241b]">{patient?.full_name || patient?.name || '—'}</span>
                 </div>
               </div>
+              <div>
+                <label className="block text-xs font-bold text-[#13241b] mb-1">Special notes / concerns (optional)</label>
+                <textarea rows="2" value={formData.notes || ''} onChange={(e) => handleChange('notes', e.target.value)} placeholder="e.g. Sensitive lower molar" className="w-full border border-[#d4e2dc] rounded-xl p-3 text-xs bg-white" />
+              </div>
+              <p className="text-[11px] text-[#607368]">Your request will be reviewed by the clinic assistant. You can follow its status under My Records.</p>
 
               <div className="space-y-3 text-xs pt-2">
                 <label className="flex items-start gap-3 cursor-pointer">
@@ -458,7 +465,7 @@ export default function AppointmentRegistrationWizard({ selectedCategory, onCanc
               <div className="flex gap-3 pt-4 border-t border-[#f0f5f2]">
                 <button type="button" onClick={handleBack} className="bg-white border border-[#d4e2dc] text-[#13241b] px-6 py-3 rounded-xl font-bold text-xs cursor-pointer">Edit information</button>
                 <button type="button" onClick={handleConfirmAppointment} disabled={submitting} className="bg-[#164e43] text-white px-8 py-3 rounded-xl font-bold text-xs cursor-pointer">
-                  {submitting ? 'Submitting to Supabase...' : 'Confirm my appointment'}
+                  {submitting ? 'Submitting...' : 'Confirm my appointment'}
                 </button>
               </div>
             </div>

@@ -206,6 +206,29 @@ export default function ManagerModule({ services, addService, updateService, del
     setLoadingStaff(false);
   }
 
+  // ---- Patient account verification (accept / reject self-registered patients) ----
+  const [patientFilter, setPatientFilter] = useState('Pending');
+  const statusOf = (u) => u.account_status || 'Approved';
+  const patientAccounts = staffUsers.filter((u) => u.role === 'patient');
+  const pendingCount = patientAccounts.filter((u) => statusOf(u) === 'Pending').length;
+  const visiblePatients = patientAccounts.filter((u) => patientFilter === 'All' || statusOf(u) === patientFilter);
+
+  const handlePatientDecision = async (account, decision) => {
+    let reason = null;
+    if (decision === 'Rejected') {
+      reason = window.prompt(`Reject ${account.full_name}'s registration?\nOptional reason (shown nowhere else, kept for your records):`, '');
+      if (reason === null) return; // cancelled
+    } else if (!window.confirm(`Accept ${account.full_name}'s account? They will be able to sign in and book appointments.`)) {
+      return;
+    }
+    const { error } = await supabase
+      .from('staff_users')
+      .update({ account_status: decision, verified_at: new Date().toISOString(), rejection_reason: reason || null })
+      .eq('id', account.id);
+    setUserMsg(error ? `Could not update account: ${error.message}` : `${account.full_name}'s account was ${decision === 'Approved' ? 'accepted' : 'rejected'}.`);
+    fetchStaffUsers();
+  };
+
   const handleRegisterDentist = async (e) => {
     e.preventDefault();
     setUserMsg('');
@@ -451,7 +474,7 @@ export default function ManagerModule({ services, addService, updateService, del
         <div className="flex-1 overflow-y-auto space-y-6 p-2">
           <div>
             <h2 className="font-black text-2xl text-[#13241b]">User & Role Management</h2>
-            <p className="text-xs text-[#607368]">Manage system users and provision authorized Dental Practitioners.</p>
+            <p className="text-xs text-[#607368]">Verify patient accounts and provision authorized staff.</p>
           </div>
 
           {userMsg && (
@@ -459,6 +482,67 @@ export default function ManagerModule({ services, addService, updateService, del
               {userMsg}
             </div>
           )}
+
+          <div className="bg-white border border-[#d4e2dc] rounded-2xl p-6 shadow-2xs space-y-4">
+            <div className="flex flex-wrap justify-between items-center gap-3">
+              <div>
+                <h3 className="font-black text-base text-[#13241b]">Patient Account Verification</h3>
+                <p className="text-[11px] text-[#607368]">Check each registration's details, then accept or reject the account. Patients can only sign in once accepted.</p>
+              </div>
+              <div className="flex gap-2">
+                {['Pending', 'Approved', 'Rejected', 'All'].map((f) => (
+                  <button
+                    key={f}
+                    type="button"
+                    onClick={() => setPatientFilter(f)}
+                    className={`px-3 py-1.5 rounded-full text-[11px] font-bold border cursor-pointer ${patientFilter === f ? 'bg-[#164e43] text-white border-[#164e43]' : 'bg-white text-[#40584f] border-[#d4e2dc]'}`}
+                  >
+                    {f === 'Approved' ? 'Accepted' : f}{f === 'Pending' && pendingCount > 0 ? ` (${pendingCount})` : ''}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div className="overflow-x-auto">
+              <table className="w-full text-left border-collapse text-xs">
+                <thead>
+                  <tr className="border-b border-[#d4e2dc] text-[11px] font-bold text-[#607368] uppercase">
+                    <th className="py-3 px-2">Patient</th>
+                    <th className="py-3 px-2">Contact</th>
+                    <th className="py-3 px-2">Birth date / Sex</th>
+                    <th className="py-3 px-2">Address</th>
+                    <th className="py-3 px-2">Status</th>
+                    <th className="py-3 px-2 text-right">Action</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-[#f0f5f2]">
+                  {visiblePatients.map((u) => (
+                    <tr key={u.id} className="hover:bg-[#f8faf9] align-top">
+                      <td className="py-3 px-2"><div className="font-bold text-[#13241b]">{u.full_name}</div><div className="text-[#607368]">@{u.username}</div></td>
+                      <td className="py-3 px-2 text-[#607368]"><div>{u.mobile_number || 'N/A'}</div><div>{u.email || ''}</div></td>
+                      <td className="py-3 px-2 text-[#607368]">{u.birthdate || 'N/A'}{u.sex ? ` · ${u.sex}` : ''}</td>
+                      <td className="py-3 px-2 text-[#607368] max-w-[260px]">{u.complete_address || 'N/A'}</td>
+                      <td className="py-3 px-2">
+                        <span className={`px-2 py-0.5 rounded font-bold text-[10px] uppercase ${statusOf(u) === 'Pending' ? 'bg-amber-100 text-amber-700' : statusOf(u) === 'Rejected' ? 'bg-red-100 text-red-700' : 'bg-emerald-100 text-emerald-700'}`}>
+                          {statusOf(u) === 'Approved' ? 'Accepted' : statusOf(u)}
+                        </span>
+                      </td>
+                      <td className="py-3 px-2 text-right whitespace-nowrap space-x-1.5">
+                        {statusOf(u) !== 'Approved' && (
+                          <button onClick={() => handlePatientDecision(u, 'Approved')} className="bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-1.5 rounded-xl font-bold text-[11px] cursor-pointer">Accept</button>
+                        )}
+                        {statusOf(u) !== 'Rejected' && (
+                          <button onClick={() => handlePatientDecision(u, 'Rejected')} className="bg-white border border-red-200 hover:bg-red-50 text-red-700 px-3 py-1.5 rounded-xl font-bold text-[11px] cursor-pointer">Reject</button>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                  {visiblePatients.length === 0 && (
+                    <tr><td colSpan="6" className="py-6 text-center text-gray-400 font-medium">No patient accounts in this list.</td></tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
 
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
             <div className="bg-white border border-[#d4e2dc] rounded-2xl p-6 shadow-2xs space-y-4 md:col-span-1">
@@ -487,7 +571,7 @@ export default function ManagerModule({ services, addService, updateService, del
             </div>
 
             <div className="bg-white border border-[#d4e2dc] rounded-2xl p-6 shadow-2xs md:col-span-2 overflow-hidden flex flex-col">
-              <h3 className="font-black text-base text-[#13241b] mb-3">System Accounts Directory</h3>
+              <h3 className="font-black text-base text-[#13241b] mb-3">Staff Accounts Directory</h3>
               {loadingStaff ? (
                 <div className="py-8 text-center text-xs font-bold text-[#607368]">Loading user accounts...</div>
               ) : (
@@ -502,7 +586,7 @@ export default function ManagerModule({ services, addService, updateService, del
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-[#f0f5f2]">
-                      {staffUsers.map(u => (
+                      {staffUsers.filter(u => u.role !== 'patient').map(u => (
                         <tr key={u.id} className="hover:bg-[#f8faf9]">
                           <td className="py-3 px-2 font-bold text-[#13241b]">{u.full_name}</td>
                           <td className="py-3 px-2 text-[#607368]">{u.username}</td>

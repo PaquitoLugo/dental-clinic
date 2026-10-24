@@ -1,4 +1,9 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
+import { supabase } from '../lib/supabase';
+import AppointmentRegistrationWizard from './AppointmentRegistrationWizard';
+import ToothChart from '../components/ToothChart';
+import TreatmentRecordModal from '../components/TreatmentRecordModal';
+import useTreatmentRecords from '../lib/useTreatmentRecords';
 
 export default function PatientModule({ services, dentists, createAppointment, appointments, user, currentView, onViewChange }) {
   const [patientName, setPatientName] = useState('');
@@ -17,6 +22,14 @@ export default function PatientModule({ services, dentists, createAppointment, a
   const [serviceSearch, setServiceSearch] = useState('');
   const [serviceCategory, setServiceCategory] = useState('All services');
   const [appointmentError, setAppointmentError] = useState('');
+
+  // The signed-in patient's own account record (used for booking and the tooth chart)
+  const [profile, setProfile] = useState(null);
+  useEffect(() => {
+    if (!user?.id) return;
+    supabase.from('staff_users').select('*').eq('id', user.id).single()
+      .then(({ data }) => { if (data) setProfile(data); });
+  }, [user?.id]);
 
   const mockServices = [
     {
@@ -119,6 +132,8 @@ export default function PatientModule({ services, dentists, createAppointment, a
   const patientAppointments = appointments.filter(
     appointment => normalizedPatientName && (appointment.patient_name || '').trim().toLowerCase() === normalizedPatientName
   );
+  const { records: myRecords } = useTreatmentRecords(patientAppointments.map(a => a.id));
+  const [viewingRecord, setViewingRecord] = useState(null);
   const liveAppointments = appointments.filter(
     appointment => appointment.status !== 'Pending' && appointment.status !== 'Completed'
   );
@@ -178,123 +193,14 @@ export default function PatientModule({ services, dentists, createAppointment, a
       )}
 
       {currentView === 'book' && (
-        <div className="h-full grid grid-cols-12 gap-6 overflow-hidden">
-          <div className="col-span-6 bg-white border border-[#d4e2dc] rounded-2xl p-6 shadow-2xs overflow-y-auto">
-            <h3 className="font-black text-xl text-[#13241b] mb-1">Schedule Your Dental Appointment</h3>
-            <p className="text-xs text-[#607368] mb-6">Select a service category, choose from our catalog, and pick your dentist.</p>
-
-            {successMsg && (
-              <div className="bg-green-50 border border-green-200 text-green-700 text-xs p-4 rounded-xl mb-4 font-bold">
-                ✓ Appointment request submitted successfully!
-              </div>
-            )}
-            {appointmentError && (
-              <div role="alert" className="bg-red-50 border border-red-200 text-red-700 text-xs p-4 rounded-xl mb-4 font-bold">
-                {appointmentError}
-              </div>
-            )}
-
-            <form onSubmit={handleSubmit} className="space-y-4">
-              <div>
-                <label className="block text-xs font-bold text-[#607368] mb-1">Full Name *</label>
-                <input type="text" required value={patientName} onChange={e => setPatientName(e.target.value)} placeholder="e.g. Maria Santos" className="w-full border border-[#d4e2dc] rounded-xl p-3 text-xs bg-[#f5f7f6]" />
-              </div>
-
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-xs font-bold text-[#607368] mb-1">Contact Number *</label>
-                  <input type="tel" required inputMode="numeric" pattern="09[0-9]{9}" maxLength={11} title="Enter an 11-digit number starting with 09 (for example, 09171234567)." value={contactNumber} onChange={e => setContactNumber(e.target.value)} placeholder="09171234567" className="w-full border border-[#d4e2dc] rounded-xl p-3 text-xs bg-[#f5f7f6]" />
-                </div>
-                <div>
-                  <label className="block text-xs font-bold text-[#607368] mb-1">Email</label>
-                  <input type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="patient@email.com" className="w-full border border-[#d4e2dc] rounded-xl p-3 text-xs bg-[#f5f7f6]" />
-                </div>
-              </div>
-
-              {/* Step 1: Choose Category */}
-              <div>
-                <label className="block text-xs font-bold text-[#164e43] mb-1">1. Select Service Category *</label>
-                <select required value={selectedCategory} onChange={handleCategoryChange} className="w-full border border-[#d4e2dc] rounded-xl p-3 text-xs bg-[#f5f7f6] font-bold">
-                  <option value="">-- Choose Category First --</option>
-                  {categories.map(cat => <option key={cat} value={cat}>{cat}</option>)}
-                </select>
-              </div>
-
-              {/* Step 2: Choose Service from Catalog */}
-              {selectedCategory && (
-                <div>
-                  <label className="block text-xs font-bold text-[#164e43] mb-1">2. Select Offered Service *</label>
-                  <select required value={selectedService} onChange={e => setSelectedService(e.target.value)} className="w-full border border-[#d4e2dc] rounded-xl p-3 text-xs bg-[#f5f7f6] font-bold">
-                    <option value="">-- Choose Treatment --</option>
-                    {filteredServices.map(s => <option key={s.id} value={s.service_name}>{s.service_name} - ₱{parseFloat(s.price).toLocaleString()}</option>)}
-                  </select>
-                </div>
-              )}
-
-              <div>
-                <label className="block text-xs font-bold text-[#607368] mb-1">Select Dentist *</label>
-                <select required value={selectedDentist} onChange={e => setSelectedDentist(e.target.value)} className="w-full border border-[#d4e2dc] rounded-xl p-3 text-xs bg-[#f5f7f6] font-bold">
-                  <option value="">-- Choose Dentist --</option>
-                  {dentists.map(d => <option key={d.id} value={d.full_name}>{d.full_name}</option>)}
-                </select>
-              </div>
-
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-xs font-bold text-[#607368] mb-1">Appointment Date *</label>
-                  <input type="date" required min={todayDateStr} value={appointmentDate} onChange={e => setAppointmentDate(e.target.value)} className="w-full border border-[#d4e2dc] rounded-xl p-3 text-xs bg-[#f5f7f6]" />
-                </div>
-                <div>
-                  <label className="block text-xs font-bold text-[#607368] mb-1">Appointment Time *</label>
-                  <input type="time" required value={appointmentTime} onChange={e => setAppointmentTime(e.target.value)} className="w-full border border-[#d4e2dc] rounded-xl p-3 text-xs bg-[#f5f7f6]" />
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-xs font-bold text-[#607368] mb-1">Special Notes / Concerns</label>
-                <textarea rows="2" value={notes} onChange={e => setNotes(e.target.value)} placeholder="e.g. Sensitive lower molar" className="w-full border border-[#d4e2dc] rounded-xl p-3 text-xs bg-[#f5f7f6]" />
-              </div>
-
-              <button type="submit" className="w-full bg-[#164e43] text-white py-3.5 rounded-xl font-bold text-xs hover:bg-[#0f362e] transition cursor-pointer">
-                Confirm & Submit Request
-              </button>
-            </form>
-          </div>
-
-          <div className="col-span-6 bg-white border border-[#d4e2dc] rounded-2xl p-6 shadow-2xs flex flex-col overflow-hidden">
-            <h3 className="font-black text-xl text-[#13241b] mb-4">Live Appointment Schedule</h3>
-            <div className="flex-1 overflow-y-auto">
-              <table className="w-full text-left border-collapse">
-                <thead>
-                  <tr className="border-b border-[#d4e2dc] text-[11px] font-bold text-[#607368] uppercase">
-                    <th className="py-3 px-2">Patient</th>
-                    <th className="py-3 px-2">Service</th>
-                    <th className="py-3 px-2">Dentist</th>
-                    <th className="py-3 px-2">Date &amp; Time</th>
-                    <th className="py-3 px-2 text-right">Status</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-[#f0f5f2] text-xs">
-                  {liveAppointments.map(a => (
-                    <tr key={a.id} className="hover:bg-[#f8faf9]">
-                      <td className="py-3 px-2 font-bold">{a.patient_name}</td>
-                      <td className="py-3 px-2 text-[#607368]">{a.service_name}</td>
-                      <td className="py-3 px-2 font-semibold text-[#164e43]">{a.assigned_dentist}</td>
-                      <td className="py-3 px-2 text-[#607368]">{a.appointment_date} @ {a.appointment_time}</td>
-                      <td className="py-3 px-2 text-right"><span className="bg-[#e3ede6] text-[#164e43] px-2 py-0.5 rounded font-bold text-[11px]">{a.status}</span></td>
-                    </tr>
-                  ))}
-                  {liveAppointments.length === 0 && (
-                    <tr>
-                      <td colSpan="5" className="py-8 text-center text-gray-400 font-medium">
-                        No appointments to display.
-                      </td>
-                    </tr>
-                  )}
-                </tbody>
-              </table>
-            </div>
-          </div>
+        <div className="h-full">
+          <AppointmentRegistrationWizard
+            embedded
+            patient={profile || { full_name: user?.name, name: user?.name }}
+            createAppointment={createAppointment}
+            existingAppointments={appointments}
+            onComplete={() => onViewChange('history')}
+          />
         </div>
       )}
 
@@ -308,6 +214,7 @@ export default function PatientModule({ services, dentists, createAppointment, a
                   <th className="py-3 px-3">Service</th>
                   <th className="py-3 px-3">Assigned Dentist</th>
                   <th className="py-3 px-3">Schedule</th>
+                  <th className="py-3 px-3">Doctor's Notes</th>
                   <th className="py-3 px-3 text-right">Status</th>
                 </tr>
               </thead>
@@ -317,12 +224,19 @@ export default function PatientModule({ services, dentists, createAppointment, a
                     <td className="py-3 px-3 font-bold text-[#13241b]">{a.service_name}</td>
                     <td className="py-3 px-3 font-semibold text-[#164e43]">{a.assigned_dentist}</td>
                     <td className="py-3 px-3 text-[#607368]">{a.appointment_date} @ {a.appointment_time}</td>
+                    <td className="py-3 px-3">
+                      {myRecords[String(a.id)] ? (
+                        <button type="button" onClick={() => setViewingRecord(a)} className="text-[11px] font-bold text-[#164e43] hover:underline cursor-pointer">View notes &amp; prescription</button>
+                      ) : (
+                        <span className="text-gray-400">—</span>
+                      )}
+                    </td>
                     <td className="py-3 px-3 text-right"><span className="bg-[#e3ede6] text-[#164e43] px-2.5 py-0.5 rounded font-bold">{a.status}</span></td>
                   </tr>
                 ))}
                 {patientAppointments.length === 0 && (
                   <tr>
-                    <td colSpan="4" className="py-8 text-center text-gray-400 font-medium">
+                    <td colSpan="5" className="py-8 text-center text-gray-400 font-medium">
                       You don’t have any appointment records yet.
                     </td>
                   </tr>
@@ -330,6 +244,24 @@ export default function PatientModule({ services, dentists, createAppointment, a
               </tbody>
             </table>
           </div>
+        </div>
+      )}
+
+      {viewingRecord && (
+        <TreatmentRecordModal
+          appointment={viewingRecord}
+          record={myRecords[String(viewingRecord.id)]}
+          onClose={() => setViewingRecord(null)}
+        />
+      )}
+
+      {currentView === 'toothchart' && (
+        <div className="h-full overflow-y-auto space-y-4">
+          <div>
+            <h3 className="font-black text-xl text-[#13241b]">My Tooth Chart</h3>
+            <p className="text-xs text-[#607368]">The current status of each of your teeth, as recorded by your dentist.</p>
+          </div>
+          <ToothChart patientId={user?.id} patientName={user?.name} canEdit={false} />
         </div>
       )}
     </div>

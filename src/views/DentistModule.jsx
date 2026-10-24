@@ -1,5 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { supabase } from '../lib/supabase';
+import PhAddressSelect from '../components/PhAddressSelect';
+import ToothChart from '../components/ToothChart';
+import TreatmentRecordModal from '../components/TreatmentRecordModal';
+import useTreatmentRecords from '../lib/useTreatmentRecords';
+import { EMPTY_ADDRESS, buildCompleteAddress } from '../lib/phAddress';
 
 const TODAY = new Date();
 const MAX_YEAR = TODAY.getFullYear();
@@ -19,7 +24,8 @@ export default function DentistModule({
   services, 
   updateAppointmentStatus, 
   user, 
-  currentView 
+  currentView,
+  onViewChange
 }) {
   // Patient Logs Filter & Search State
   const [searchQuery, setSearchQuery] = useState('');
@@ -37,19 +43,16 @@ export default function DentistModule({
   const [birthMonth, setBirthMonth] = useState('');
   const [birthDay, setBirthDay] = useState('');
   const [birthYear, setBirthYear] = useState('');
-  const [street, setStreet] = useState('');
-  const [regionCode, setRegionCode] = useState('');
-  const [cityCode, setCityCode] = useState('');
-  const [barangayCode, setBarangayCode] = useState('');
-
-  // PSGC Lists & UI State
-  const [regionsList, setRegionsList] = useState([]);
-  const [citiesList, setCitiesList] = useState([]);
-  const [barangaysList, setBarangaysList] = useState([]);
-  const [loadingRegions, setLoadingRegions] = useState(false);
-  const [loadingCities, setLoadingCities] = useState(false);
-  const [loadingBarangays, setLoadingBarangays] = useState(false);
+  const [address, setAddress] = useState(EMPTY_ADDRESS);
   const [profileSuccess, setProfileSuccess] = useState('');
+
+  // Treatment notes / prescriptions the dentist issues before the assistant can mark a visit as done
+  const { records: treatmentRecords, refresh: refreshRecords } = useTreatmentRecords();
+  const [recordTarget, setRecordTarget] = useState(null);
+
+  // Tooth chart: which patient the dentist is charting
+  const [chartPatients, setChartPatients] = useState([]);
+  const [chartPatientId, setChartPatientId] = useState('');
 
   // Daily Capacity & Scheduler State
   const [maxDailyPatients, setMaxDailyPatients] = useState(() => {
@@ -170,83 +173,29 @@ export default function DentistModule({
           setBirthMonth(String(Number(mth)));
           setBirthDay(String(Number(dy)));
         }
-        setStreet(data.street || '');
-        setRegionCode(data.region_code || '');
-        if (data.region_code) fetchCitiesForRegion(data.region_code, data.city_code);
-        if (data.city_code) fetchBarangaysForCity(data.city_code, data.barangay_code);
+        setAddress({
+          street: data.street || '',
+          regionCode: data.region_code || '', regionName: data.region_name || '',
+          provinceCode: data.province_code || '', provinceName: data.province_name || '',
+          cityCode: data.city_code || '', cityName: data.city_name || '',
+          barangayCode: data.barangay_code || '', barangayName: data.barangay_name || '',
+        });
       }
     }
     fetchDentistProfile();
   }, [user]);
 
-  async function fetchCitiesForRegion(regCode, selectedCity) {
-    setLoadingCities(true);
-    try {
-      const res = await fetch(`https://psgc.cloud/api/regions/${regCode}/cities-municipalities`);
-      const data = await res.json();
-      setCitiesList(data);
-      if (selectedCity) setCityCode(selectedCity);
-    } catch (err) {
-      console.error(err);
-    } finally {
-      setLoadingCities(false);
-    }
-  }
-
-  async function fetchBarangaysForCity(citCode, selectedBrgy) {
-    setLoadingBarangays(true);
-    try {
-      const res = await fetch(`https://psgc.cloud/api/cities-municipalities/${citCode}/barangays`);
-      const data = await res.json();
-      setBarangaysList(data);
-      if (selectedBrgy) setBarangayCode(selectedBrgy);
-    } catch (err) {
-      console.error(err);
-    } finally {
-      setLoadingBarangays(false);
-    }
-  }
-
+  // Patients (verified accounts) for the tooth chart
   useEffect(() => {
-    async function fetchRegions() {
-      setLoadingRegions(true);
-      try {
-        const res = await fetch("https://psgc.cloud/api/regions");
-        const data = await res.json();
-        setRegionsList(data);
-      } catch (err) {
-        console.error("Failed to fetch regions:", err);
-      } finally {
-        setLoadingRegions(false);
-      }
-    }
-    fetchRegions();
-  }, []);
-
-  const handleRegionChange = async (ev) => {
-    const code = ev.target.value;
-    setRegionCode(code);
-    setCityCode('');
-    setBarangayCode('');
-    setCitiesList([]);
-    setBarangaysList([]);
-    if (!code) return;
-    fetchCitiesForRegion(code);
-  };
-
-  const handleCityChange = async (ev) => {
-    const code = ev.target.value;
-    setCityCode(code);
-    setBarangayCode('');
-    setBarangaysList([]);
-    if (!code) return;
-    fetchBarangaysForCity(code);
-  };
+    if (currentView !== 'toothchart' && currentView !== 'logs') return;
+    supabase.from('staff_users').select('id, full_name, account_status').eq('role', 'patient').order('full_name')
+      .then(({ data }) => setChartPatients((data || []).filter((p) => (p.account_status || 'Approved') === 'Approved')));
+  }, [currentView]);
 
   const dentistName = `${firstName} ${middleName ? middleName + ' ' : ''}${lastName}`.trim();
   const assignedAppointments = appointments.filter(a => a.assigned_dentist === dentistName || !a.assigned_dentist);
   const totalPatients = assignedAppointments.length;
-  const pendingPatients = assignedAppointments.filter(a => a.status === 'Pending' || a.status === 'Checked-in').length;
+  const pendingPatients = assignedAppointments.filter(a => a.status === 'Pending' || a.status === 'Accepted' || a.status === 'In Queue' || a.status === 'In Treatment').length;
   const completedPatients = assignedAppointments.filter(a => a.status === 'Completed').length;
   const completionRate = totalPatients > 0 ? Math.round((completedPatients / totalPatients) * 100) : 0;
 
@@ -257,23 +206,6 @@ export default function DentistModule({
     const matchesDate = !filterDate || a.appointment_date === filterDate;
     return matchesSearch && matchesService && matchesStatus && matchesDate;
   });
-
-  const handleMarkAsDone = async (appointmentId) => {
-    const confirmed = window.confirm("Are you sure you want to mark this procedure as completed?");
-    if (!confirmed) return;
-    if (updateAppointmentStatus) {
-      await updateAppointmentStatus(appointmentId, 'Completed');
-    }
-  };
-
-  const handleAppointmentDecision = async (appointmentId, status) => {
-    const action = status === 'Accepted' ? 'accept' : 'reject';
-    const confirmed = window.confirm(`Are you sure you want to ${action} this appointment?`);
-    if (!confirmed) return;
-    if (updateAppointmentStatus) {
-      await updateAppointmentStatus(appointmentId, status);
-    }
-  };
 
   const handleProfileSave = async (e) => {
     e.preventDefault();
@@ -297,10 +229,16 @@ export default function DentistModule({
           username: username.trim().toLowerCase(),
           email: email.trim(),
           birthdate: birthdateFormatted,
-          street: street.trim(),
-          region_code: regionCode,
-          city_code: cityCode,
-          barangay_code: barangayCode
+          street: address.street.trim(),
+          region_code: address.regionCode,
+          region_name: address.regionName,
+          province_code: address.provinceCode === '__independent__' ? null : (address.provinceCode || null),
+          province_name: address.provinceName || null,
+          city_code: address.cityCode,
+          city_name: address.cityName,
+          barangay_code: address.barangayCode || null,
+          barangay_name: address.barangayName,
+          complete_address: buildCompleteAddress({ ...address, street: address.street.trim() })
         })
         .eq('id', targetId);
 
@@ -609,7 +547,7 @@ export default function DentistModule({
           <div className="flex justify-between items-center">
             <div>
               <h2 className="font-black text-2xl text-[#13241b]">Patient Logs</h2>
-              <p className="text-xs text-[#607368]">Search, filter, and complete active facility visits.</p>
+              <p className="text-xs text-[#607368]">Search and filter patient visits. Write each visit's treatment notes or prescription here; the dental assistant can only mark a visit as done after you issue them.</p>
             </div>
             <span className="text-xs bg-[#e3ede6] text-[#164e43] px-3 py-1 rounded-full font-bold">
               Showing: {filteredLogs.length} of {assignedAppointments.length}
@@ -651,7 +589,8 @@ export default function DentistModule({
                 <option value="Pending">Pending</option>
                 <option value="Accepted">Accepted</option>
                 <option value="Rejected">Rejected</option>
-                <option value="Checked-in">Checked-in</option>
+                <option value="In Queue">In Queue</option>
+                <option value="In Treatment">In Treatment</option>
                 <option value="Completed">Completed</option>
               </select>
             </div>
@@ -693,44 +632,41 @@ export default function DentistModule({
                   filteredLogs.map(a => (
                     <tr key={a.id} className="hover:bg-[#f8faf9]">
                       <td className="py-3 px-2 font-bold text-[#13241b]">{a.patient_name}</td>
-                      <td className="py-3 px-2 text-[#607368]">{a.mobile_number || 'N/A'}</td>
+                      <td className="py-3 px-2 text-[#607368]">{a.contact_number || a.mobile_number || 'N/A'}</td>
                       <td className="py-3 px-2 font-semibold text-[#164e43]">{a.service_name}</td>
                       <td className="py-3 px-2">{a.appointment_date} @ {a.appointment_time}</td>
                       <td className="py-3 px-2">
                         <span className={`px-2.5 py-0.5 rounded-md font-bold text-[11px] ${
-                          a.status === 'Completed' ? 'bg-emerald-100 text-emerald-700' : 'bg-[#e3ede6] text-[#164e43]'
+                          a.status === 'Completed' ? 'bg-emerald-100 text-emerald-700' : a.status === 'Rejected' ? 'bg-red-100 text-red-700' : 'bg-[#e3ede6] text-[#164e43]'
                         }`}>
                           {a.status}
                         </span>
                       </td>
-                      <td className="py-3 px-2 text-right">
-                        {a.status === 'Pending' ? (
-                          <div className="flex justify-end gap-2">
-                            <button
-                              onClick={() => handleAppointmentDecision(a.id, 'Accepted')}
-                              className="bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-1.5 rounded-xl font-bold text-[11px] transition cursor-pointer shadow-2xs"
-                            >
-                              Accept
-                            </button>
-                            <button
-                              onClick={() => handleAppointmentDecision(a.id, 'Rejected')}
-                              className="bg-white border border-red-200 hover:bg-red-50 text-red-700 px-3 py-1.5 rounded-xl font-bold text-[11px] transition cursor-pointer"
-                            >
-                              Reject
-                            </button>
-                          </div>
-                        ) : a.status !== 'Completed' && a.status !== 'Rejected' ? (
+                      <td className="py-3 px-2 text-right whitespace-nowrap space-x-3">
+                        {['In Queue', 'In Treatment', 'Completed'].includes(a.status) && (
                           <button
-                            onClick={() => handleMarkAsDone(a.id)}
-                            className="bg-[#164e43] hover:bg-[#0f362e] text-white px-3.5 py-1.5 rounded-xl font-bold text-[11px] transition cursor-pointer shadow-2xs"
+                            type="button"
+                            onClick={() => setRecordTarget(a)}
+                            className={`px-3 py-1.5 rounded-xl font-bold text-[11px] cursor-pointer transition ${
+                              treatmentRecords[String(a.id)]
+                                ? 'bg-emerald-50 text-emerald-700 border border-emerald-200 hover:bg-emerald-100'
+                                : 'bg-[#164e43] text-white hover:bg-[#0f362e]'
+                            }`}
                           >
-                            ✓ Mark as Done
+                            {treatmentRecords[String(a.id)] ? '✓ Notes issued · Edit' : 'Write notes / prescription'}
                           </button>
-                        ) : a.status === 'Rejected' ? (
-                          <span className="text-red-600 font-medium italic">Rejected</span>
-                        ) : (
-                          <span className="text-gray-400 font-medium italic">Finished</span>
                         )}
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const patient = chartPatients.find((p) => p.full_name === a.patient_name);
+                            if (patient) setChartPatientId(String(patient.id));
+                            if (onViewChange) onViewChange('toothchart');
+                          }}
+                          className="text-[11px] font-bold text-[#164e43] hover:underline cursor-pointer"
+                        >
+                          View tooth chart
+                        </button>
                       </td>
                     </tr>
                   ))
@@ -744,6 +680,44 @@ export default function DentistModule({
               </tbody>
             </table>
           </div>
+        </div>
+      )}
+
+      {recordTarget && (
+        <TreatmentRecordModal
+          appointment={recordTarget}
+          record={treatmentRecords[String(recordTarget.id)]}
+          canEdit
+          issuedBy={user?.name}
+          onClose={() => setRecordTarget(null)}
+          onSaved={refreshRecords}
+        />
+      )}
+
+      {/* TOOTH CHART VIEW */}
+      {currentView === 'toothchart' && (
+        <div className="space-y-4">
+          <div>
+            <h2 className="font-black text-2xl text-[#13241b]">Patient Tooth Charts</h2>
+            <p className="text-xs text-[#607368]">Record the status of each tooth. Patients can view their own chart (read-only) from their account.</p>
+          </div>
+          <div className="bg-white border border-[#d4e2dc] rounded-2xl p-4 max-w-md">
+            <label className="block text-[11px] font-bold text-[#607368] mb-1">Patient</label>
+            <select
+              value={chartPatientId}
+              onChange={(e) => setChartPatientId(e.target.value)}
+              className="w-full border border-[#d4e2dc] rounded-xl p-2.5 text-xs bg-white focus:outline-none focus:border-[#164e43]"
+            >
+              <option value="">Select a verified patient</option>
+              {chartPatients.map((p) => <option key={p.id} value={p.id}>{p.full_name}</option>)}
+            </select>
+          </div>
+          <ToothChart
+            patientId={chartPatientId ? Number(chartPatientId) : null}
+            patientName={chartPatients.find((p) => String(p.id) === chartPatientId)?.full_name}
+            canEdit
+            editorName={user?.name}
+          />
         </div>
       )}
 
@@ -833,7 +807,7 @@ export default function DentistModule({
 
               <div className="border-t border-[#d4e2dc] pt-3">
                 <span className="font-bold text-[#607368] block">Address Information:</span>
-                <p className="font-semibold text-[#13241b] mt-1">{street ? `${street}, ` : ''}Region: {regionCode || 'N/A'}, City: {cityCode || 'N/A'}</p>
+                <p className="font-semibold text-[#13241b] mt-1">{buildCompleteAddress(address) || 'N/A'}</p>
               </div>
             </div>
           ) : (
@@ -890,33 +864,7 @@ export default function DentistModule({
 
               <div className="bg-[#f5f7f6] border border-[#d4e2dc] rounded-2xl p-4 space-y-3">
                 <span className="font-bold text-[#164e43] block">Address Information</span>
-                <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <label className="block font-bold text-[#607368] mb-1">No. / Block *</label>
-                    <input className="w-full border border-[#d4e2dc] rounded-xl p-2 bg-white" value={street} onChange={e => setStreet(e.target.value)} />
-                  </div>
-                  <div>
-                    <label className="block font-bold text-[#607368] mb-1">Region *</label>
-                    <select className="w-full border border-[#d4e2dc] rounded-xl p-2 bg-white" value={regionCode} onChange={handleRegionChange} disabled={loadingRegions}>
-                      <option value="">{loadingRegions ? "Loading..." : "Select Region"}</option>
-                      {regionsList.map((r) => <option key={r.code} value={r.code}>{r.name}</option>)}
-                    </select>
-                  </div>
-                  <div>
-                    <label className="block font-bold text-[#607368] mb-1">City *</label>
-                    <select className="w-full border border-[#d4e2dc] rounded-xl p-2 bg-white" value={cityCode} onChange={handleCityChange} disabled={!regionCode || loadingCities}>
-                      <option value="">{loadingCities ? "Loading..." : "Select City"}</option>
-                      {citiesList.map((c) => <option key={c.code} value={c.code}>{c.name}</option>)}
-                    </select>
-                  </div>
-                  <div>
-                    <label className="block font-bold text-[#607368] mb-1">Barangay *</label>
-                    <select className="w-full border border-[#d4e2dc] rounded-xl p-2 bg-white" value={barangayCode} onChange={e => setBarangayCode(e.target.value)} disabled={!cityCode || loadingBarangays}>
-                      <option value="">{loadingBarangays ? "Loading..." : "Select Barangay"}</option>
-                      {barangaysList.map((b) => <option key={b.code} value={b.code}>{b.name}</option>)}
-                    </select>
-                  </div>
-                </div>
+                <PhAddressSelect value={address} onChange={setAddress} />
               </div>
 
               <div className="flex gap-3 pt-2">

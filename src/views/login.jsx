@@ -27,7 +27,15 @@ export default function Login({ onLogin }) {
       if (error || !data) {
         setErrorMsg('Invalid username or password. Please check your credentials.');
       } else {
-        onLogin(data.role, data.full_name, data.id);
+        // Patient accounts must be accepted by the manager first. Existing staff rows have no status (treated as approved).
+        const status = data.account_status || 'Approved';
+        if (status === 'Pending') {
+          setErrorMsg('Your account is still waiting for verification by the clinic manager. Please try again later.');
+        } else if (status === 'Rejected') {
+          setErrorMsg('Your registration was not approved. Please contact the clinic for assistance.');
+        } else {
+          onLogin(data.role, data.full_name, data.id);
+        }
       }
     } catch (err) {
       setErrorMsg('Database connection error.');
@@ -36,10 +44,10 @@ export default function Login({ onLogin }) {
     }
   };
 
-  const handleRegistrationSuccess = (newUsername, newPassword) => {
+  const handleRegistrationSuccess = (newUsername) => {
     setUsername(newUsername);
-    setPassword(newPassword);
-    setSuccessMsg('Registration successful! You can now sign in below.');
+    setPassword('');
+    setSuccessMsg('Registration submitted! The clinic manager will verify your details. You can sign in once your account is approved.');
   };
 
   return (
@@ -104,13 +112,13 @@ export default function Login({ onLogin }) {
 
         {/* Separated Register Button */}
         <div className="mt-8 pt-6 border-t border-[#d4e2dc] text-center">
-          <p className="text-xs text-[#607368] mb-2 font-medium">Don't have a patient account yet?</p>
+          <p className="text-xs text-[#607368] mb-2 font-medium">New patient? Create an account for verification.</p>
           <button
             type="button"
             onClick={() => setIsRegisterOpen(true)}
             className="w-full bg-[#e3ede6] hover:bg-[#d4e2dc] text-[#164e43] border border-[#d4e2dc] py-3 rounded-2xl text-xs font-bold transition cursor-pointer"
           >
-            Register Here
+            Register as a Patient
           </button>
         </div>
 
