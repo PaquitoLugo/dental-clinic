@@ -43,6 +43,9 @@ export default function ManagerModule({ services, addService, updateService, del
   const [newDentistUsername, setNewDentistUsername] = useState('');
   const [newDentistPassword, setNewDentistPassword] = useState('');
   const [newDentistEmail, setNewDentistEmail] = useState('');
+  const [newStaffRole, setNewStaffRole] = useState('dentist');
+  const [editingStaff, setEditingStaff] = useState(null);
+  const [staffDirectoryTab, setStaffDirectoryTab] = useState('active');
   const [userMsg, setUserMsg] = useState('');
 
   // Form States
@@ -229,31 +232,61 @@ export default function ManagerModule({ services, addService, updateService, del
     fetchStaffUsers();
   };
 
+  const resetStaffForm = () => {
+    setNewDentistName('');
+    setNewDentistUsername('');
+    setNewDentistPassword('');
+    setNewDentistEmail('');
+    setNewStaffRole('dentist');
+  };
+
   const handleRegisterDentist = async (e) => {
     e.preventDefault();
     setUserMsg('');
 
     try {
-      const { error } = await supabase.from('staff_users').insert([{
+      const account = {
         full_name: newDentistName.trim(),
         username: newDentistUsername.trim().toLowerCase(),
-        password: newDentistPassword.trim(),
         email: newDentistEmail.trim(),
-        role: 'dentist'
-      }]);
+        role: newStaffRole
+      };
+      if (newDentistPassword.trim()) account.password = newDentistPassword.trim();
+
+      const query = editingStaff
+        ? supabase.from('staff_users').update(account).eq('id', editingStaff.id)
+        : supabase.from('staff_users').insert([{ ...account, password: newDentistPassword.trim() }]);
+      const { error } = await query;
 
       if (error) throw error;
 
-      setUserMsg('Successfully registered new Dentist account!');
-      setNewDentistName('');
-      setNewDentistUsername('');
-      setNewDentistPassword('');
-      setNewDentistEmail('');
+      setUserMsg(editingStaff ? 'Staff account updated successfully.' : 'Staff account created successfully.');
+      setEditingStaff(null);
+      resetStaffForm();
       fetchStaffUsers();
     } catch (err) {
-      setUserMsg('Error registering dentist: ' + err.message);
+      setUserMsg(`Error ${editingStaff ? 'updating' : 'creating'} staff account: ${err.message}`);
     }
   };
+
+  const startEditingStaff = (account) => {
+    setEditingStaff(account);
+    setNewDentistName(account.full_name || '');
+    setNewDentistUsername(account.username || '');
+    setNewDentistPassword('');
+    setNewDentistEmail(account.email || '');
+    setNewStaffRole(account.role === 'assistant' ? 'assistant' : 'dentist');
+    setUserMsg('');
+  };
+
+  const setStaffArchived = async (account, archived) => {
+    const { error } = await supabase.from('staff_users')
+      .update({ archived_at: archived ? new Date().toISOString() : null })
+      .eq('id', account.id);
+    setUserMsg(error ? `Could not ${archived ? 'archive' : 'restore'} account: ${error.message}` : `${account.full_name}'s account was ${archived ? 'archived' : 'restored'}.`);
+    fetchStaffUsers();
+  };
+
 
   const filteredAndSortedServices = activeServices
     .filter(s => {
@@ -596,7 +629,7 @@ export default function ManagerModule({ services, addService, updateService, del
 
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
             <div className="bg-white border border-[#d4e2dc] rounded-2xl p-6 shadow-2xs space-y-4 md:col-span-1">
-              <h3 className="font-black text-base text-[#13241b]">Register New Dentist</h3>
+              <h3 className="font-black text-base text-[#13241b]">Register Staff Account</h3>
               <form onSubmit={handleRegisterDentist} className="space-y-3 text-xs">
                 <div>
                   <label className="block font-bold text-[#13241b] mb-1">Full Name *</label>
@@ -607,21 +640,38 @@ export default function ManagerModule({ services, addService, updateService, del
                   <input type="text" required value={newDentistUsername} onChange={e => setNewDentistUsername(e.target.value)} placeholder="drjuan" className="w-full border border-[#d4e2dc] rounded-xl p-2.5 bg-[#f5f7f6]" />
                 </div>
                 <div>
-                  <label className="block font-bold text-[#13241b] mb-1">Password *</label>
-                  <input type="password" required value={newDentistPassword} onChange={e => setNewDentistPassword(e.target.value)} placeholder="••••••••" className="w-full border border-[#d4e2dc] rounded-xl p-2.5 bg-[#f5f7f6]" />
+                  <label className="block font-bold text-[#13241b] mb-1">Password {editingStaff ? '(leave blank to keep current)' : '*'}</label>
+                  <input type="password" required={!editingStaff} value={newDentistPassword} onChange={e => setNewDentistPassword(e.target.value)} placeholder="••••••••" className="w-full border border-[#d4e2dc] rounded-xl p-2.5 bg-[#f5f7f6]" />
                 </div>
                 <div>
                   <label className="block font-bold text-[#13241b] mb-1">Email Address *</label>
                   <input type="email" required value={newDentistEmail} onChange={e => setNewDentistEmail(e.target.value)} placeholder="dentist@clinic.com" className="w-full border border-[#d4e2dc] rounded-xl p-2.5 bg-[#f5f7f6]" />
                 </div>
+                <div>
+                  <label className="block font-bold text-[#13241b] mb-1">Role *</label>
+                  <select required value={newStaffRole} onChange={e => setNewStaffRole(e.target.value)} className="w-full border border-[#d4e2dc] rounded-xl p-2.5 bg-[#f5f7f6]">
+                    <option value="dentist">Dentist</option>
+                    <option value="assistant">Assistant</option>
+                  </select>
+                </div>
                 <button type="submit" className="w-full bg-[#164e43] text-white py-3 rounded-xl font-bold hover:bg-[#0f362e] transition cursor-pointer mt-2">
-                  + Create Dentist Account
+                  {editingStaff ? 'Save Changes' : 'Add Account'}
                 </button>
+                {editingStaff && <button type="button" onClick={() => { setEditingStaff(null); resetStaffForm(); }} className="w-full border border-[#d4e2dc] text-[#40584f] py-2.5 rounded-xl font-bold cursor-pointer">Cancel Edit</button>}
               </form>
             </div>
 
             <div className="bg-white border border-[#d4e2dc] rounded-2xl p-6 shadow-2xs md:col-span-2 overflow-hidden flex flex-col">
-              <h3 className="font-black text-base text-[#13241b] mb-3">Staff Accounts Directory</h3>
+              <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+                <h3 className="font-black text-base text-[#13241b]">Staff Accounts Directory</h3>
+                <div className="flex gap-2">
+                  {[['active', 'Active Accounts'], ['archived', 'Archived Accounts']].map(([tab, label]) => (
+                    <button key={tab} type="button" onClick={() => setStaffDirectoryTab(tab)} className={`rounded-full border px-3 py-1.5 text-[11px] font-bold cursor-pointer ${staffDirectoryTab === tab ? 'border-[#164e43] bg-[#164e43] text-white' : 'border-[#d4e2dc] bg-white text-[#40584f]'}`}>
+                      {label}
+                    </button>
+                  ))}
+                </div>
+              </div>
               {loadingStaff ? (
                 <div className="py-8 text-center text-xs font-bold text-[#607368]">Loading user accounts...</div>
               ) : (
@@ -633,10 +683,11 @@ export default function ManagerModule({ services, addService, updateService, del
                         <th className="py-3 px-2">Username</th>
                         <th className="py-3 px-2">Role</th>
                         <th className="py-3 px-2">Email</th>
+                        <th className="py-3 px-2 text-right">Actions</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-[#f0f5f2]">
-                      {staffUsers.filter(u => u.role !== 'patient').map(u => (
+                      {staffUsers.filter(u => u.role !== 'patient' && (staffDirectoryTab === 'archived' ? Boolean(u.archived_at) : !u.archived_at)).map(u => (
                         <tr key={u.id} className="hover:bg-[#f8faf9]">
                           <td className="py-3 px-2 font-bold text-[#13241b]">{u.full_name}</td>
                           <td className="py-3 px-2 text-[#607368]">{u.username}</td>
@@ -650,13 +701,42 @@ export default function ManagerModule({ services, addService, updateService, del
                             </span>
                           </td>
                           <td className="py-3 px-2 text-[#607368]">{u.email || 'N/A'}</td>
+                          <td className="py-3 px-2 text-right">
+                            <div className="flex justify-end gap-2">
+                              {staffDirectoryTab === 'active' && (u.role === 'dentist' || u.role === 'assistant') && <button type="button" onClick={() => startEditingStaff(u)} className="border border-[#d4e2dc] hover:bg-[#f5f7f6] text-[#164e43] px-3 py-1.5 rounded-lg font-bold cursor-pointer">Edit</button>}
+                              {staffDirectoryTab === 'active' && u.role !== 'manager' && <button type="button" onClick={() => setStaffArchived(u, true)} className="border border-amber-200 hover:bg-amber-50 text-amber-700 px-3 py-1.5 rounded-lg font-bold cursor-pointer">Archive</button>}
+                              {staffDirectoryTab === 'archived' && <button type="button" onClick={() => setStaffArchived(u, false)} className="border border-emerald-200 hover:bg-emerald-50 text-emerald-700 px-3 py-1.5 rounded-lg font-bold cursor-pointer">Restore</button>}
+                            </div>
+                          </td>
                         </tr>
                       ))}
                     </tbody>
                   </table>
+                  {staffUsers.filter(u => u.role !== 'patient' && (staffDirectoryTab === 'archived' ? Boolean(u.archived_at) : !u.archived_at)).length === 0 && (
+                    <p className="py-6 text-center text-xs font-medium text-gray-400">No {staffDirectoryTab === 'archived' ? 'archived' : 'active'} staff accounts.</p>
+                  )}
                 </div>
               )}
             </div>
+          </div>
+        </div>
+      )}
+
+      {currentView === 'users' && editingStaff && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={() => { setEditingStaff(null); resetStaffForm(); }}>
+          <div role="dialog" aria-modal="true" aria-labelledby="edit-staff-title" className="w-full max-w-lg rounded-2xl bg-white p-6 shadow-xl" onClick={e => e.stopPropagation()}>
+            <div className="mb-4 flex items-center justify-between">
+              <h3 id="edit-staff-title" className="font-black text-lg text-[#13241b]">Edit Staff Account</h3>
+              <button type="button" aria-label="Close" onClick={() => { setEditingStaff(null); resetStaffForm(); }} className="text-xl text-[#607368] cursor-pointer">×</button>
+            </div>
+            <form onSubmit={handleRegisterDentist} className="space-y-3 text-xs">
+              <div><label className="mb-1 block font-bold text-[#13241b]">Full Name *</label><input type="text" required value={newDentistName} onChange={e => setNewDentistName(e.target.value)} className="w-full rounded-xl border border-[#d4e2dc] bg-[#f5f7f6] p-2.5" /></div>
+              <div><label className="mb-1 block font-bold text-[#13241b]">Username *</label><input type="text" required value={newDentistUsername} onChange={e => setNewDentistUsername(e.target.value)} className="w-full rounded-xl border border-[#d4e2dc] bg-[#f5f7f6] p-2.5" /></div>
+              <div><label className="mb-1 block font-bold text-[#13241b]">Password (leave blank to keep current)</label><input type="password" value={newDentistPassword} onChange={e => setNewDentistPassword(e.target.value)} placeholder="••••••••" className="w-full rounded-xl border border-[#d4e2dc] bg-[#f5f7f6] p-2.5" /></div>
+              <div><label className="mb-1 block font-bold text-[#13241b]">Email Address *</label><input type="email" required value={newDentistEmail} onChange={e => setNewDentistEmail(e.target.value)} className="w-full rounded-xl border border-[#d4e2dc] bg-[#f5f7f6] p-2.5" /></div>
+              <div><label className="mb-1 block font-bold text-[#13241b]">Role *</label><select required value={newStaffRole} onChange={e => setNewStaffRole(e.target.value)} className="w-full rounded-xl border border-[#d4e2dc] bg-[#f5f7f6] p-2.5"><option value="dentist">Dentist</option><option value="assistant">Assistant</option></select></div>
+              <button type="submit" className="w-full rounded-xl bg-[#164e43] py-3 font-bold text-white hover:bg-[#0f362e] cursor-pointer">Save Changes</button>
+            </form>
           </div>
         </div>
       )}

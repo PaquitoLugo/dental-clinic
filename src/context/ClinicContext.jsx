@@ -16,7 +16,7 @@ export function ClinicProvider({ children }) {
       const [apptsRes, servRes, staffRes] = await Promise.all([
         supabase.from('appointments').select('*').order('appointment_date', { ascending: true }),
         supabase.from('services').select('*'),
-        supabase.from('staff_users').select('*').eq('role', 'dentist')
+        supabase.from('staff_users').select('*').eq('role', 'dentist').is('archived_at', null)
       ]);
 
       if (apptsRes.error) throw apptsRes.error;

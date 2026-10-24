@@ -38,7 +38,7 @@ export default function AssistantModule({ appointments = [], updateAppointmentSt
   // Doctors come from the shared context; fall back to a direct query if it has none
   useEffect(() => {
     if (dentists.length > 0) return;
-    supabase.from('staff_users').select('id, full_name').eq('role', 'dentist')
+    supabase.from('staff_users').select('id, full_name').eq('role', 'dentist').is('archived_at', null)
       .then(({ data }) => setFetchedDentists(data || []));
   }, [dentists.length]);
 

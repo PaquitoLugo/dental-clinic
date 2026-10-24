@@ -26,6 +26,8 @@ export default function Login({ onLogin }) {
 
       if (error || !data) {
         setErrorMsg('Invalid username or password. Please check your credentials.');
+      } else if (data.archived_at) {
+        setErrorMsg('This account is archived. Please contact the clinic manager for assistance.');
       } else {
         // Patient accounts must be accepted by the manager first. Existing staff rows have no status (treated as approved).
         const status = data.account_status || 'Approved';
