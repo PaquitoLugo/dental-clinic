@@ -2,6 +2,8 @@ import React, { useState } from 'react';
 import { supabase } from '../lib/supabase';
 import PhAddressSelect from './PhAddressSelect';
 import { EMPTY_ADDRESS, buildCompleteAddress } from '../lib/phAddress';
+import showPasswordIcon from '../assets/forgot-pass-default.png';
+import hidePasswordIcon from '../assets/forgot-pass-clicked.png';
 
 const inputClass = 'w-full border border-[#d4e2dc] rounded-xl p-2.5 bg-white text-xs font-semibold focus:outline-none focus:border-[#164e43]';
 const labelClass = 'block font-bold text-[#607368] mb-1 text-xs';
@@ -21,6 +23,8 @@ export default function RegisterModal({ isOpen, onClose, onSuccess }) {
   const [address, setAddress] = useState(EMPTY_ADDRESS);
   const [error, setError] = useState('');
   const [submitting, setSubmitting] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
 
   if (!isOpen) return null;
 
@@ -35,8 +39,16 @@ export default function RegisterModal({ isOpen, onClose, onSuccess }) {
     setForm(INITIAL);
     setAddress(EMPTY_ADDRESS);
     setError('');
+    setShowPassword(false);
+    setShowConfirmPassword(false);
     onClose();
   };
+
+  const PasswordVisibilityButton = ({ visible, onClick, label }) => (
+    <button type="button" onClick={onClick} aria-label={label} aria-pressed={visible} className="absolute inset-y-0 right-2 flex items-center px-1 text-[#20282b] cursor-pointer">
+      <img aria-hidden="true" src={visible ? hidePasswordIcon : showPasswordIcon} alt="" className="h-6 w-6 object-contain" />
+    </button>
+  );
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -159,8 +171,20 @@ export default function RegisterModal({ isOpen, onClose, onSuccess }) {
             <h4 className="text-xs font-black uppercase tracking-wider text-[#164e43]">Account</h4>
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
               <div><label className={labelClass}>Username *</label><input required autoComplete="off" className={inputClass} value={form.username} onChange={set('username')} /></div>
-              <div><label className={labelClass}>Password *</label><input required type="password" autoComplete="new-password" className={inputClass} value={form.password} onChange={set('password')} /></div>
-              <div><label className={labelClass}>Confirm password *</label><input required type="password" autoComplete="new-password" className={inputClass} value={form.confirmPassword} onChange={set('confirmPassword')} /></div>
+              <div>
+                <label className={labelClass}>Password *</label>
+                <div className="relative">
+                  <input required type={showPassword ? 'text' : 'password'} autoComplete="new-password" className={`${inputClass} pr-10`} value={form.password} onChange={set('password')} />
+                  <PasswordVisibilityButton visible={showPassword} onClick={() => setShowPassword(value => !value)} label={showPassword ? 'Hide password' : 'Show password'} />
+                </div>
+              </div>
+              <div>
+                <label className={labelClass}>Confirm password *</label>
+                <div className="relative">
+                  <input required type={showConfirmPassword ? 'text' : 'password'} autoComplete="new-password" className={`${inputClass} pr-10`} value={form.confirmPassword} onChange={set('confirmPassword')} />
+                  <PasswordVisibilityButton visible={showConfirmPassword} onClick={() => setShowConfirmPassword(value => !value)} label={showConfirmPassword ? 'Hide confirm password' : 'Show confirm password'} />
+                </div>
+              </div>
             </div>
           </section>
 
