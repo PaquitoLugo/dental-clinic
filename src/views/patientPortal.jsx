@@ -322,21 +322,22 @@ export default function PatientPortal({ onRegisterClick, onCheckAppointmentClick
 
           <div className="space-y-2">
             <label className="block font-bold text-[#13241b] text-xs">Select Practitioner *</label>
-            <select
-              value={selectedDentist}
-              onChange={(e) => {
-                setSelectedDentist(e.target.value);
-                setAppointmentDate('');
-                setAppointmentTime('');
-              }}
-              className="w-full border border-[#d4e2dc] rounded-xl p-3 bg-white font-bold text-[#13241b] text-xs"
-            >
-              <option value="">-- Choose Practitioner --</option>
-              {dentistsList.map(d => {
-                const name = d.full_name || `${d.first_name || ''} ${d.last_name || ''}`.trim();
-                return <option key={d.id} value={name}>{name}</option>;
-              })}
-            </select>
+              <select
+                value={selectedDentist}
+                onChange={(e) => {
+                  setSelectedDentist(e.target.value);
+                  setAppointmentDate('');
+                  setAppointmentTime('');
+                }}
+                className="w-full border border-[#d4e2dc] rounded-xl p-3 bg-white font-bold text-[#13241b] text-xs">
+                <option value="">-- Choose Practitioner --</option>
+                {dentistsList
+                  .filter(d => d.role === 'dentist')
+                  .map(d => {
+                    const name = d.full_name || `${d.first_name || ''} ${d.last_name || ''}`.trim();
+                    return <option key={d.id} value={name}>{name}</option>;
+                  })}
+              </select>
           </div>
 
           {selectedDentist ? (
