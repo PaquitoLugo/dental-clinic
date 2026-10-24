@@ -155,7 +155,7 @@ function MainWorkspace({ authenticatedUser, handleLogout }) {
                     currentView === 'history' ? 'bg-[#164e43] text-white' : 'text-[#607368] hover:bg-[#f5f7f6]'
                   }`}
                 >
-                  <span>My Records</span>
+                  <span>History</span>
                 </button>
                 <button
                   onClick={() => setCurrentView('toothchart')}

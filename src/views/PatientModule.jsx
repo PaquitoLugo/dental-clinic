@@ -135,7 +135,7 @@ export default function PatientModule({ services, dentists, createAppointment, a
   const { records: myRecords } = useTreatmentRecords(patientAppointments.map(a => a.id));
   const [viewingRecord, setViewingRecord] = useState(null);
   const liveAppointments = appointments.filter(
-    appointment => appointment.status !== 'Pending' && appointment.status !== 'Completed'
+    appointment => appointment.status !== 'Pending' && appointment.status !== 'Completed' && appointment.status !== 'Rejected'
   );
 
   return (
