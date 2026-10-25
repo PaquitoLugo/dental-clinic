@@ -4,6 +4,7 @@ import AppointmentRegistrationWizard from './AppointmentRegistrationWizard';
 import ToothChart from '../components/ToothChart';
 import TreatmentRecordModal from '../components/TreatmentRecordModal';
 import useTreatmentRecords from '../lib/useTreatmentRecords';
+import { belongsToPatient } from '../lib/patientMatch';
 
 export default function PatientModule({ services, dentists, createAppointment, appointments, user, currentView, onViewChange }) {
   const [patientName, setPatientName] = useState('');
@@ -133,7 +134,7 @@ export default function PatientModule({ services, dentists, createAppointment, a
 
   const normalizedPatientName = (user?.name || '').trim().toLowerCase();
   const patientAppointments = appointments.filter(
-    appointment => normalizedPatientName && (appointment.patient_name || '').trim().toLowerCase() === normalizedPatientName
+    appointment => normalizedPatientName && belongsToPatient(appointment, { id: user?.id, full_name: user?.name })
   );
   const { records: myRecords } = useTreatmentRecords(patientAppointments.map(a => a.id));
   const [viewingRecord, setViewingRecord] = useState(null);
@@ -201,7 +202,7 @@ export default function PatientModule({ services, dentists, createAppointment, a
             key={bookingService?.id || 'new-booking'}
             initialService={bookingService}
             embedded
-            patient={profile || { full_name: user?.name, name: user?.name }}
+            patient={profile || { id: user?.id, full_name: user?.name, name: user?.name }}
             createAppointment={createAppointment}
             existingAppointments={appointments}
             onComplete={() => { setBookingService(null); onViewChange('history'); }}

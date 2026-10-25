@@ -7,6 +7,7 @@ import ManagerModule from './views/ManagerModule';
 import Login from './views/login';
 import PatientPortal from './views/patientPortal';
 import DialogHost, { dialog } from './components/DialogHost';
+import useSessionGuard from './lib/useSessionGuard';
 
 function MainWorkspace({ authenticatedUser, handleLogout }) {
   const contextData = useContext(ClinicContext);
@@ -246,6 +247,22 @@ export default function App() {
       setPortalView('portal');
     }
   };
+
+  // Archived / rejected / deleted accounts are signed out right away, even if they are mid-session
+  const handleForcedLogout = async (reason) => {
+    localStorage.removeItem('dental_portal_user');
+    setAuthenticatedUser(null);
+    setPortalView('login');
+    await dialog.alert(
+      reason === 'archived'
+        ? 'Your account has been archived by the clinic manager, so you have been signed out. Please contact the clinic if you think this is a mistake.'
+        : reason === 'missing'
+          ? 'Your account no longer exists, so you have been signed out.'
+          : 'Your account is no longer active, so you have been signed out.',
+      { title: 'Signed out', variant: 'warning' }
+    );
+  };
+  useSessionGuard(authenticatedUser, handleForcedLogout);
 
   return (
     <ClinicProvider>

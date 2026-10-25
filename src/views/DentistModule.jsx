@@ -5,6 +5,17 @@ import PhAddressSelect from '../components/PhAddressSelect';
 import ToothChart from '../components/ToothChart';
 import TreatmentRecordModal from '../components/TreatmentRecordModal';
 import useTreatmentRecords from '../lib/useTreatmentRecords';
+import usePatientContacts from '../lib/usePatientContacts';
+import { belongsToPatient } from '../lib/patientMatch';
+import { isAccountActive } from '../lib/useSessionGuard';
+
+// "23:38:00" / "13:00" -> "11:38 PM" / "1:00 PM"
+const formatApptTime = (t) => {
+  const m = /^(\d{1,2}):(\d{2})/.exec(t || '');
+  if (!m) return t || '';
+  const h = Number(m[1]);
+  return `${h % 12 || 12}:${m[2]} ${h >= 12 ? 'PM' : 'AM'}`;
+};
 import { EMPTY_ADDRESS, buildCompleteAddress } from '../lib/phAddress';
 
 const TODAY = new Date();
@@ -50,6 +61,7 @@ export default function DentistModule({
   // Treatment notes / prescriptions the dentist issues before the assistant can mark a visit as done
   const { records: treatmentRecords, refresh: refreshRecords } = useTreatmentRecords();
   const [recordTarget, setRecordTarget] = useState(null);
+  const contactFor = usePatientContacts();
 
   // Tooth chart: which patient the dentist is charting
   const [chartPatients, setChartPatients] = useState([]);
@@ -81,16 +93,25 @@ export default function DentistModule({
     return saved ? JSON.parse(saved) : { timeIn: null, timeOut: null };
   });
 
-  const handleSaveLimit = (e) => {
+  // Archived accounts can't change their schedule or clock in/out (the session guard also signs them out)
+  const requireActiveAccount = async () => {
+    if (await isAccountActive(user?.id)) return true;
+    await dialog.alert('Your account has been archived, so this action is not allowed.', { title: 'Account archived', variant: 'error' });
+    return false;
+  };
+
+  const handleSaveLimit = async (e) => {
     e.preventDefault();
+    if (!(await requireActiveAccount())) return;
     localStorage.setItem(`dentist_limit_${user?.id || 2}`, maxDailyPatients);
     setLimitSavedMsg('Daily patient capacity limit updated successfully!');
     setTimeout(() => setLimitSavedMsg(''), 4000);
   };
 
   // Save availability for a specific selected date
-  const handleSaveSingleDayAvailability = (e) => {
+  const handleSaveSingleDayAvailability = async (e) => {
     e.preventDefault();
+    if (!(await requireActiveAccount())) return;
     if (!selectedDateKey) return;
 
     const updated = {
@@ -104,7 +125,8 @@ export default function DentistModule({
   };
 
   // Apply availability to all matching weekdays of the current month
-  const handleApplyToAllWeekdayInMonth = (targetDayOfWeek) => {
+  const handleApplyToAllWeekdayInMonth = async (targetDayOfWeek) => {
+    if (!(await requireActiveAccount())) return;
     const daysInMonth = new Date(calendarYear, calendarMonth + 1, 0).getDate();
     const updated = { ...availabilityMap };
     let count = 0;
@@ -129,14 +151,16 @@ export default function DentistModule({
     setTimeout(() => setScheduleMsg(''), 4000);
   };
 
-  const handleRemoveAvailability = (dateStr) => {
+  const handleRemoveAvailability = async (dateStr) => {
+    if (!(await requireActiveAccount())) return;
     const updated = { ...availabilityMap };
     delete updated[dateStr];
     setAvailabilityMap(updated);
     localStorage.setItem(`dentist_availability_${user?.id || 2}`, JSON.stringify(updated));
   };
 
-  const handleClockIn = () => {
+  const handleClockIn = async () => {
+    if (!(await requireActiveAccount())) return;
     const nowTime = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: true });
     const todayKey = new Date().toISOString().split('T')[0];
     const newLog = { ...attendanceLog, timeIn: nowTime };
@@ -144,7 +168,8 @@ export default function DentistModule({
     localStorage.setItem(`dentist_attendance_${user?.id || 2}_${todayKey}`, JSON.stringify(newLog));
   };
 
-  const handleClockOut = () => {
+  const handleClockOut = async () => {
+    if (!(await requireActiveAccount())) return;
     const nowTime = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: true });
     const todayKey = new Date().toISOString().split('T')[0];
     const newLog = { ...attendanceLog, timeOut: nowTime };
@@ -189,8 +214,8 @@ export default function DentistModule({
   // Pre-select the patient who is currently in the chair when the tooth chart opens
   useEffect(() => {
     if (currentView !== 'toothchart' || chartPatientId || chartPatients.length === 0) return;
-    const inChair = new Set(appointments.filter(a => a.status === 'In Treatment' && (!a.assigned_dentist || a.assigned_dentist === dentistName)).map(a => a.patient_name));
-    const match = chartPatients.find((p) => inChair.has(p.full_name));
+    const inChair = appointments.filter(a => a.status === 'In Treatment' && (!a.assigned_dentist || a.assigned_dentist === dentistName));
+    const match = chartPatients.find((p) => inChair.some((a) => belongsToPatient(a, p)));
     if (match) setChartPatientId(String(match.id));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentView, chartPatients, appointments]);
@@ -209,16 +234,17 @@ export default function DentistModule({
   const completedPatients = assignedAppointments.filter(a => a.status === 'Completed').length;
 
   // The tooth chart can only be edited while the patient is in the chair (appointment status "In Treatment")
-  const patientsInChair = new Set(assignedAppointments.filter(a => a.status === 'In Treatment').map(a => a.patient_name));
+  const isPatientInChair = (patient) => assignedAppointments.some(a => a.status === 'In Treatment' && belongsToPatient(a, patient));
+  const inChairNames = [...new Set(assignedAppointments.filter(a => a.status === 'In Treatment').map(a => a.patient_name))];
   const chartPatient = chartPatients.find((p) => String(p.id) === chartPatientId);
-  const chartPatientInChair = !!chartPatient && patientsInChair.has(chartPatient.full_name);
+  const chartPatientInChair = !!chartPatient && isPatientInChair(chartPatient);
   // Re-checked against the database right before saving, so a stale screen can't bypass the rule
   const verifyPatientInChair = async () => {
     if (!chartPatient) return 'Select a patient first.';
-    const { data, error } = await supabase.from('appointments').select('id, assigned_dentist')
-      .eq('patient_name', chartPatient.full_name).eq('status', 'In Treatment');
+    const { data, error } = await supabase.from('appointments').select('id, patient_id, patient_name, assigned_dentist')
+      .eq('status', 'In Treatment');
     if (error) return `Could not verify the patient's status: ${error.message}`;
-    const ok = (data || []).some((a) => !a.assigned_dentist || a.assigned_dentist === dentistName);
+    const ok = (data || []).some((a) => belongsToPatient(a, chartPatient) && (!a.assigned_dentist || a.assigned_dentist === dentistName));
     return ok ? null : 'This patient is not being treated by you right now. Ask the dental assistant to send them to the chair first.';
   };
   const completionRate = totalPatients > 0 ? Math.round((completedPatients / totalPatients) * 100) : 0;
@@ -656,9 +682,9 @@ export default function DentistModule({
                   filteredLogs.map(a => (
                     <tr key={a.id} className="hover:bg-[#f8faf9]">
                       <td className="py-3 px-2 font-bold text-[#13241b]">{a.patient_name}</td>
-                      <td className="py-3 px-2 text-[#607368]">{a.contact_number || a.mobile_number || 'N/A'}</td>
+                      <td className="py-3 px-2 text-[#607368]">{contactFor(a) || 'N/A'}</td>
                       <td className="py-3 px-2 font-semibold text-[#164e43]">{a.service_name}</td>
-                      <td className="py-3 px-2">{a.appointment_date} @ {a.appointment_time}</td>
+                      <td className="py-3 px-2">{a.appointment_date} @ {formatApptTime(a.appointment_time)}</td>
                       <td className="py-3 px-2">
                         <span className={`px-2.5 py-0.5 rounded-md font-bold text-[11px] ${
                           a.status === 'Completed' ? 'bg-emerald-100 text-emerald-700' : a.status === 'Rejected' ? 'bg-red-100 text-red-700' : 'bg-[#e3ede6] text-[#164e43]'
@@ -667,23 +693,28 @@ export default function DentistModule({
                         </span>
                       </td>
                       <td className="py-3 px-2 text-right whitespace-nowrap space-x-3">
-                        {['In Queue', 'In Treatment', 'Completed'].includes(a.status) && (
+                        {a.status === 'In Queue' && (
+                          <span className="text-[11px] italic text-gray-400">Notes open once the patient is in treatment</span>
+                        )}
+                        {['In Treatment', 'Completed'].includes(a.status) && (
                           <button
                             type="button"
                             onClick={() => setRecordTarget(a)}
                             className={`px-3 py-1.5 rounded-xl font-bold text-[11px] cursor-pointer transition ${
                               treatmentRecords[String(a.id)]
                                 ? 'bg-emerald-50 text-emerald-700 border border-emerald-200 hover:bg-emerald-100'
-                                : 'bg-[#164e43] text-white hover:bg-[#0f362e]'
+                                : a.status === 'Completed'
+                                  ? 'bg-white text-amber-700 border border-amber-300 hover:bg-amber-50'
+                                  : 'bg-[#164e43] text-white hover:bg-[#0f362e]'
                             }`}
                           >
-                            {treatmentRecords[String(a.id)] ? '✓ Notes issued · Edit' : 'Write notes / prescription'}
+                            {treatmentRecords[String(a.id)] ? '✓ Notes issued · Edit' : a.status === 'Completed' ? 'Add missing notes' : 'Write notes / prescription'}
                           </button>
                         )}
                         <button
                           type="button"
                           onClick={() => {
-                            const patient = chartPatients.find((p) => p.full_name === a.patient_name);
+                            const patient = chartPatients.find((p) => belongsToPatient(a, p));
                             if (patient) setChartPatientId(String(patient.id));
                             if (onViewChange) onViewChange('toothchart');
                           }}
@@ -733,11 +764,11 @@ export default function DentistModule({
               className="w-full border border-[#d4e2dc] rounded-xl p-2.5 text-xs bg-white focus:outline-none focus:border-[#164e43]"
             >
               <option value="">Select a verified patient</option>
-              {chartPatients.map((p) => <option key={p.id} value={p.id}>{p.full_name}{patientsInChair.has(p.full_name) ? '  ·  In treatment' : ''}</option>)}
+              {chartPatients.map((p) => <option key={p.id} value={p.id}>{p.full_name}{isPatientInChair(p) ? '  ·  In treatment' : ''}</option>)}
             </select>
             <p className="text-[11px] text-[#607368] mt-2">
-              {patientsInChair.size > 0
-                ? `In your chair now: ${[...patientsInChair].join(', ')}`
+              {inChairNames.length > 0
+                ? `In your chair now: ${inChairNames.join(', ')}`
                 : 'No patient is in your chair right now. Charts can be edited only while a patient is In Treatment.'}
             </p>
           </div>

@@ -3,6 +3,7 @@ import { supabase } from '../lib/supabase';
 import { dialog } from '../components/DialogHost';
 import TreatmentRecordModal from '../components/TreatmentRecordModal';
 import useTreatmentRecords from '../lib/useTreatmentRecords';
+import usePatientContacts from '../lib/usePatientContacts';
 
 // Appointment lifecycle handled by the dental assistant:
 //   Pending -> Accepted (or Rejected) -> In Queue -> In Treatment -> Completed
@@ -34,6 +35,7 @@ export default function AssistantModule({ appointments = [], updateAppointmentSt
   const [overrides, setOverrides] = useState({}); // doctor assigned here before the shared list refreshes
   const [fetchedDentists, setFetchedDentists] = useState([]);
   const { records, refresh: refreshRecords } = useTreatmentRecords();
+  const contactFor = usePatientContacts();
   const [viewing, setViewing] = useState(null);
 
   // Doctors come from the shared context; fall back to a direct query if it has none
@@ -61,7 +63,8 @@ export default function AssistantModule({ appointments = [], updateAppointmentSt
     const inChair = mine.find((a) => a.status === 'In Treatment') || null;
     const waiting = mine
       .filter((a) => a.status === 'In Queue')
-      .sort((a, b) => (Number(a.queue_number) || 0) - (Number(b.queue_number) || 0));
+      // earliest appointment date first, then queue number (a patient booked for a later day never jumps the line)
+      .sort((a, b) => String(a.appointment_date).localeCompare(String(b.appointment_date)) || (Number(a.queue_number) || 0) - (Number(b.queue_number) || 0));
     return { doctor: d, inChair, waiting, pending: mine.filter((a) => a.status === 'Pending').length };
   });
 
@@ -284,7 +287,7 @@ export default function AssistantModule({ appointments = [], updateAppointmentSt
                   <td className="py-3 px-3 font-black text-[#164e43] text-sm">{a.queue_number ? `#${a.queue_number}` : '--'}</td>
                   <td className="py-3 px-3">
                     <div className="font-bold text-[#13241b]">{a.patient_name}</div>
-                    <div className="text-[#607368]">{a.contact_number || a.mobile_number || 'N/A'}</div>
+                    <div className="text-[#607368]">{contactFor(a) || 'N/A'}</div>
                   </td>
                   <td className="py-3 px-3">
                     {doc ? (

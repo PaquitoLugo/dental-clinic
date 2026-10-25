@@ -118,9 +118,13 @@ export default function AppointmentRegistrationWizard({
 
   // The dentist the availability calendar belongs to
   const [dentistName, setDentistName] = useState('');
+  const [dentistArchived, setDentistArchived] = useState(false);
   useEffect(() => {
-    supabase.from('staff_users').select('full_name').eq('id', DENTIST_ID).single()
-      .then(({ data }) => { if (data?.full_name) setDentistName(data.full_name); });
+    supabase.from('staff_users').select('full_name, archived_at').eq('id', DENTIST_ID).single()
+      .then(({ data }) => {
+        if (data?.full_name) setDentistName(data.full_name);
+        setDentistArchived(Boolean(data?.archived_at));
+      });
   }, []);
 
   // Slots already taken on the chosen date (anyone's non-rejected appointment) or already past today
@@ -222,13 +226,26 @@ export default function AppointmentRegistrationWizard({
       return;
     }
 
+    if (dentistArchived) {
+      setFormError('This dentist is no longer available for booking. Please contact the clinic.');
+      return;
+    }
+
     setSubmitting(true);
     setFormError('');
 
     try {
+      // Older accounts may not have the number on the loaded profile, so look it up
+      let mobile = patient.mobile_number || '';
+      if (!mobile && patient.id) {
+        const { data: acct } = await supabase.from('staff_users').select('mobile_number').eq('id', patient.id).maybeSingle();
+        mobile = acct?.mobile_number || '';
+      }
+
       const payload = {
+        patient_id: patient.id ?? null,
         patient_name: patient.full_name || patient.name,
-        contact_number: patient.mobile_number || '',
+        contact_number: mobile,
         email: patient.email || null,
         service_name: formData.selectedServices.map(s => s.service_name).join(', '),
         service_price: selectedTotal,
@@ -369,7 +386,7 @@ export default function AppointmentRegistrationWizard({
                 <label className="block text-xs font-bold text-[#13241b]">Appointment date *</label>
               </div>
               <AvailabilityDatePicker
-                availabilityMap={availabilityMap}
+                availabilityMap={dentistArchived ? {} : availabilityMap}
                 value={formData.appointmentDate}
                 onChange={(dateKey) => {
                   // changing the date invalidates a previously chosen time
