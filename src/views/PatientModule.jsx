@@ -108,6 +108,7 @@ export default function PatientModule({ services, dentists, createAppointment, a
       contact_number: contactNumber,
       email,
       service_name: selectedService,
+      service_price: Number(services.find(service => service.service_name === selectedService)?.price || 0),
       assigned_dentist: selectedDentist,
       appointment_date: appointmentDate,
       appointment_time: appointmentTime,

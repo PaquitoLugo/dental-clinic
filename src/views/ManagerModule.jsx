@@ -62,6 +62,7 @@ export default function ManagerModule({ services, addService, updateService, del
 
   const [calendarDate, setCalendarDate] = useState(() => new Date());
   const [calendarMode, setCalendarMode] = useState('week');
+  const [dashboardPeriod, setDashboardPeriod] = useState('week');
 
   const [catalogSearchQuery, setCatalogSearchQuery] = useState('');
   const [catalogFilterCategory, setCatalogFilterCategory] = useState('ALL');
@@ -303,13 +304,27 @@ export default function ManagerModule({ services, addService, updateService, del
       return 0;
     });
 
-  const totalRevenue = appointments
-    ?.filter(a => a.status === 'Completed')
-    ?.reduce((sum, a) => {
-      const sName = a.service_name || a.name || a.title;
-      const matchedService = activeServices.find(s => s.service_name === sName);
-      return sum + (matchedService ? parseFloat(matchedService.price || 0) : 0);
-    }, 0) || 0;
+  const dashboardToday = new Date();
+  const dashboardStart = dashboardPeriod === 'today'
+    ? new Date(dashboardToday.getFullYear(), dashboardToday.getMonth(), dashboardToday.getDate())
+    : dashboardPeriod === 'week' ? startOfWeek(dashboardToday) : new Date(dashboardToday.getFullYear(), dashboardToday.getMonth(), 1);
+  const dashboardEnd = dashboardPeriod === 'today' ? addDays(dashboardStart, 1)
+    : dashboardPeriod === 'week' ? addDays(dashboardStart, 7) : new Date(dashboardToday.getFullYear(), dashboardToday.getMonth() + 1, 1);
+  const periodAppointments = appointments.filter(a => a.appointment_date >= dateKey(dashboardStart) && a.appointment_date < dateKey(dashboardEnd));
+  const periodCompleted = periodAppointments.filter(a => a.status === 'Completed');
+  const servicePrice = a => Number(a.service_price ?? 0);
+  const dashboardRevenue = periodCompleted.reduce((sum, a) => sum + servicePrice(a), 0);
+  const totalRevenue = dashboardRevenue;
+  const chartDays = Array.from({ length: dashboardPeriod === 'today' ? 1 : dashboardPeriod === 'week' ? 7 : dashboardToday.getDate() }, (_, i) => addDays(dashboardStart, i));
+  const chartValues = chartDays.map(day => periodCompleted.filter(a => a.appointment_date === dateKey(day)).reduce((sum, a) => sum + servicePrice(a), 0));
+  const chartMax = Math.max(...chartValues, 1);
+  const todayKey = dateKey(dashboardToday);
+  const todaySchedule = appointments.filter(a => a.appointment_date === todayKey).sort((a, b) => formatTime(a.appointment_time).localeCompare(formatTime(b.appointment_time)));
+  const topServices = Object.entries(periodAppointments.reduce((counts, a) => {
+    const name = a.service_name || 'Other';
+    counts[name] = (counts[name] || 0) + 1;
+    return counts;
+  }, {})).sort((a, b) => b[1] - a[1]).slice(0, 5);
 
   const weekStart = startOfWeek(calendarDate);
   const calendarDays = calendarMode === 'week'
@@ -330,7 +345,6 @@ export default function ManagerModule({ services, addService, updateService, del
   Object.values(appointmentsByDate).forEach(dayAppointments => {
     dayAppointments.sort((a, b) => formatTime(a.appointment_time).localeCompare(formatTime(b.appointment_time)));
   });
-  const todayKey = dateKey(new Date());
 
   const moveCalendar = (direction) => {
     const next = new Date(calendarDate);
@@ -370,12 +384,17 @@ export default function ManagerModule({ services, addService, updateService, del
       )}
 
       {currentView === 'dashboard' && (
-        <div className="flex-1 overflow-y-auto space-y-6 p-2">
-          <div>
-            <h2 className="font-black text-2xl text-[#13241b]">Manager Dashboard</h2>
-            <p className="text-xs text-[#607368]">Financial analytics and clinic performance overview.</p>
-          </div>
-          <div className="grid grid-cols-2 gap-6 max-w-xl">
+        <div className="flex-1 min-h-0 overflow-y-auto space-y-5 p-4 md:p-6">
+          <header className="flex flex-wrap items-end justify-between gap-4">
+            <div>
+              <h2 className="font-black text-3xl text-[#13241b]">Manager dashboard</h2>
+              <p className="text-sm text-[#607368]">{dashboardToday.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })} · Financial analytics and clinic performance</p>
+            </div>
+            <div className="flex rounded-xl border border-[#d4e2dc] bg-white p-1">
+              {['today', 'week', 'month'].map((period, i) => <button key={period} onClick={() => setDashboardPeriod(period)} className={`px-4 py-2 rounded-lg text-sm font-semibold capitalize ${dashboardPeriod === period ? 'bg-[#164e43] text-white' : 'text-[#40564c] hover:bg-[#f5f7f6]'}`}>{['Today', 'This week', 'This month'][i]}</button>)}
+            </div>
+          </header>
+          <div className="grid grid-cols-2 xl:grid-cols-5 gap-3">
             <div className="bg-white border border-[#d4e2dc] rounded-2xl p-6 shadow-2xs">
               <p className="text-xs font-bold text-[#607368] uppercase tracking-wider">Completed Revenue</p>
               <h3 className="text-3xl font-black text-[#164e43] mt-2">₱{totalRevenue.toLocaleString()}</h3>
@@ -384,7 +403,15 @@ export default function ManagerModule({ services, addService, updateService, del
               <p className="text-xs font-bold text-[#607368] uppercase tracking-wider">Active Services</p>
               <h3 className="text-3xl font-black text-[#13241b] mt-2">{activeServices.length}</h3>
             </div>
+            <div className="bg-white border border-[#d4e2dc] rounded-2xl p-5"><p className="text-sm text-[#71827c]">Appointments</p><h3 className="text-3xl font-black text-[#164e43] mt-2">{periodAppointments.length}</h3></div>
+            <div className="bg-white border border-[#d4e2dc] rounded-2xl p-5"><p className="text-sm text-[#71827c]">Pending requests</p><h3 className="text-3xl font-black text-[#164e43] mt-2">{periodAppointments.filter(a => a.status === 'Pending').length}</h3></div>
+            <div className="bg-white border border-[#d4e2dc] rounded-2xl p-5"><p className="text-sm text-[#71827c]">In queue now</p><h3 className="text-3xl font-black text-[#164e43] mt-2">{appointments.filter(a => a.appointment_date === todayKey && a.status === 'In Queue').length}</h3></div>
           </div>
+          <div className="grid grid-cols-1 xl:grid-cols-[1.4fr_1fr] gap-4">
+            <section className="bg-white border border-[#d4e2dc] rounded-2xl p-5 min-h-[300px]"><h3 className="font-black text-xl mb-5">Revenue trend</h3><div className="h-56 flex items-end justify-around gap-2 border-b border-[#e5ece8]">{chartDays.map((day, i) => <div key={dateKey(day)} className="h-full flex-1 flex flex-col justify-end items-center gap-2 min-w-0"><div title={`₱${chartValues[i].toLocaleString('en-PH')}`} className={`w-full max-w-14 rounded-t-lg border border-[#407368] ${dateKey(day) === todayKey ? 'bg-[#164e43]' : 'bg-[#e2eee9]'}`} style={{ height: `${chartValues[i] ? Math.max((chartValues[i] / chartMax) * 80, 8) : 0}%` }} /><span className="text-xs text-[#71827c]">{dashboardPeriod === 'today' ? 'Today' : dashboardPeriod === 'month' ? day.getDate() : day.toLocaleDateString('en-US', { weekday: 'short' })}</span></div>)}</div></section>
+            <section className="bg-white border border-[#d4e2dc] rounded-2xl p-5"><h3 className="font-black text-xl mb-4">Today’s schedule</h3><div className="divide-y divide-[#dce6e2]">{todaySchedule.length ? todaySchedule.map(a => <div key={a.id} className="py-3 flex items-center gap-3"><span className="text-sm text-[#71827c] w-14 shrink-0">{formatTime(a.appointment_time)}</span><div className="min-w-0 flex-1"><p className="font-bold truncate">{a.patient_name || 'Patient'}</p><p className="text-sm text-[#71827c] truncate">{a.service_name || 'Appointment'}{a.assigned_dentist ? ` · Dr. ${a.assigned_dentist}` : ''}</p></div><span className="text-xs font-semibold rounded-full border px-3 py-1 whitespace-nowrap">{a.status}</span></div>) : <p className="py-8 text-sm text-[#71827c]">No appointments scheduled today.</p>}</div></section>
+          </div>
+          <section className="bg-white border border-[#d4e2dc] rounded-2xl p-5"><h3 className="font-black text-xl mb-4">Top services</h3>{topServices.length ? <div className="space-y-3">{topServices.map(([name, count]) => <div key={name} className="grid grid-cols-[minmax(120px,180px)_1fr_24px] items-center gap-3"><span className="truncate text-sm">{name}</span><div className="h-3 rounded-full bg-[#e2eee9] overflow-hidden"><div className="h-full rounded-full bg-[#164e43]" style={{ width: `${(count / topServices[0][1]) * 100}%` }} /></div><span className="text-sm font-bold">{count}</span></div>)}</div> : <p className="text-sm text-[#71827c]">No appointments in this period.</p>}</section>
         </div>
       )}
 

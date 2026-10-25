@@ -229,6 +229,7 @@ export default function AppointmentRegistrationWizard({
         contact_number: patient.mobile_number || '',
         email: patient.email || null,
         service_name: formData.selectedServices.map(s => s.service_name).join(', '),
+        service_price: selectedTotal,
         assigned_dentist: dentistName || null,
         appointment_date: formData.appointmentDate,
         appointment_time: slotStart24(formData.appointmentTime),
