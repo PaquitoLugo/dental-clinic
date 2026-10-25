@@ -6,6 +6,7 @@ import DentistModule from './views/DentistModule';
 import ManagerModule from './views/ManagerModule';
 import Login from './views/login';
 import PatientPortal from './views/patientPortal';
+import DialogHost, { dialog } from './components/DialogHost';
 
 function MainWorkspace({ authenticatedUser, handleLogout }) {
   const contextData = useContext(ClinicContext);
@@ -155,7 +156,7 @@ function MainWorkspace({ authenticatedUser, handleLogout }) {
                     currentView === 'history' ? 'bg-[#164e43] text-white' : 'text-[#607368] hover:bg-[#f5f7f6]'
                   }`}
                 >
-                  <span>History</span>
+                  <span>My Records</span>
                 </button>
                 <button
                   onClick={() => setCurrentView('toothchart')}
@@ -237,8 +238,8 @@ export default function App() {
     setAuthenticatedUser(userData);
   };
 
-  const handleLogout = () => {
-    const confirmed = window.confirm('Are you sure you want to sign out of your workspace?');
+  const handleLogout = async () => {
+    const confirmed = await dialog.confirm('Are you sure you want to sign out of your workspace?', { title: 'Sign out', confirmText: 'Sign Out' });
     if (confirmed) {
       localStorage.removeItem('dental_portal_user');
       setAuthenticatedUser(null);
@@ -272,6 +273,7 @@ export default function App() {
           </>
         )}
       </div>
+      <DialogHost />
     </ClinicProvider>
   );
 }

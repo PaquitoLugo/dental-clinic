@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { supabase } from '../lib/supabase';
+import { dialog } from '../components/DialogHost';
 import PhAddressSelect from '../components/PhAddressSelect';
 import ToothChart from '../components/ToothChart';
 import TreatmentRecordModal from '../components/TreatmentRecordModal';
@@ -185,6 +186,15 @@ export default function DentistModule({
     fetchDentistProfile();
   }, [user]);
 
+  // Pre-select the patient who is currently in the chair when the tooth chart opens
+  useEffect(() => {
+    if (currentView !== 'toothchart' || chartPatientId || chartPatients.length === 0) return;
+    const inChair = new Set(appointments.filter(a => a.status === 'In Treatment' && (!a.assigned_dentist || a.assigned_dentist === dentistName)).map(a => a.patient_name));
+    const match = chartPatients.find((p) => inChair.has(p.full_name));
+    if (match) setChartPatientId(String(match.id));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentView, chartPatients, appointments]);
+
   // Patients (verified accounts) for the tooth chart
   useEffect(() => {
     if (currentView !== 'toothchart' && currentView !== 'logs') return;
@@ -197,6 +207,20 @@ export default function DentistModule({
   const totalPatients = assignedAppointments.length;
   const pendingPatients = assignedAppointments.filter(a => a.status === 'Pending' || a.status === 'Accepted' || a.status === 'In Queue' || a.status === 'In Treatment').length;
   const completedPatients = assignedAppointments.filter(a => a.status === 'Completed').length;
+
+  // The tooth chart can only be edited while the patient is in the chair (appointment status "In Treatment")
+  const patientsInChair = new Set(assignedAppointments.filter(a => a.status === 'In Treatment').map(a => a.patient_name));
+  const chartPatient = chartPatients.find((p) => String(p.id) === chartPatientId);
+  const chartPatientInChair = !!chartPatient && patientsInChair.has(chartPatient.full_name);
+  // Re-checked against the database right before saving, so a stale screen can't bypass the rule
+  const verifyPatientInChair = async () => {
+    if (!chartPatient) return 'Select a patient first.';
+    const { data, error } = await supabase.from('appointments').select('id, assigned_dentist')
+      .eq('patient_name', chartPatient.full_name).eq('status', 'In Treatment');
+    if (error) return `Could not verify the patient's status: ${error.message}`;
+    const ok = (data || []).some((a) => !a.assigned_dentist || a.assigned_dentist === dentistName);
+    return ok ? null : 'This patient is not being treated by you right now. Ask the dental assistant to send them to the chair first.';
+  };
   const completionRate = totalPatients > 0 ? Math.round((completedPatients / totalPatients) * 100) : 0;
 
   const filteredLogs = assignedAppointments.filter(a => {
@@ -243,14 +267,14 @@ export default function DentistModule({
         .eq('id', targetId);
 
       if (error) {
-        alert('Failed to update profile: ' + error.message);
+        dialog.alert('Failed to update profile: ' + error.message, { title: 'Profile not saved', variant: 'error' });
       } else {
         setProfileSuccess('Profile updated and synchronized with database!');
         setIsEditingProfile(false);
       }
     } catch (err) {
       console.error(err);
-      alert('Unexpected error updating profile.');
+      dialog.alert('Unexpected error updating profile.', { title: 'Profile not saved', variant: 'error' });
     }
   };
 
@@ -709,13 +733,20 @@ export default function DentistModule({
               className="w-full border border-[#d4e2dc] rounded-xl p-2.5 text-xs bg-white focus:outline-none focus:border-[#164e43]"
             >
               <option value="">Select a verified patient</option>
-              {chartPatients.map((p) => <option key={p.id} value={p.id}>{p.full_name}</option>)}
+              {chartPatients.map((p) => <option key={p.id} value={p.id}>{p.full_name}{patientsInChair.has(p.full_name) ? '  ·  In treatment' : ''}</option>)}
             </select>
+            <p className="text-[11px] text-[#607368] mt-2">
+              {patientsInChair.size > 0
+                ? `In your chair now: ${[...patientsInChair].join(', ')}`
+                : 'No patient is in your chair right now. Charts can be edited only while a patient is In Treatment.'}
+            </p>
           </div>
           <ToothChart
             patientId={chartPatientId ? Number(chartPatientId) : null}
-            patientName={chartPatients.find((p) => String(p.id) === chartPatientId)?.full_name}
-            canEdit
+            patientName={chartPatient?.full_name}
+            canEdit={chartPatientInChair}
+            readOnlyReason={chartPatient && !chartPatientInChair ? 'This patient is not in treatment right now, so the chart is read-only. The dental assistant must send the patient to the chair (status "In Treatment") before you can change any tooth.' : ''}
+            beforeSave={verifyPatientInChair}
             editorName={user?.name}
           />
         </div>

@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { supabase } from '../lib/supabase';
+import { dialog } from '../components/DialogHost';
 import AvailabilityDatePicker, { formatTime } from '../components/AvailabilityDatePicker';
 
 // Dentist's availability is saved by DentistModule under this key (dentist user id = 2)
@@ -42,8 +43,9 @@ export default function AppointmentRegistrationWizard({
   patient = null,
   createAppointment = null,
   existingAppointments = [],
+  initialService = null, // set when the patient taps "Book this service": starts on step 2 with it selected
 }) {
-  const [currentStep, setCurrentStep] = useState(1);
+  const [currentStep, setCurrentStep] = useState(initialService ? 2 : 1);
   const [services, setServices] = useState([]);
   const [loadingServices, setLoadingServices] = useState(true);
   const [serviceSearch, setServiceSearch] = useState('');
@@ -52,7 +54,7 @@ export default function AppointmentRegistrationWizard({
   const servicesPerPage = 12;
 
   const [formData, setFormData] = useState({
-    selectedServices: [],
+    selectedServices: initialService ? [initialService] : [],
     appointmentDate: '',
     appointmentTime: '',
     notes: '',
@@ -244,7 +246,8 @@ export default function AppointmentRegistrationWizard({
         if (error) throw error;
       }
 
-      alert('Appointment request submitted! The clinic assistant will review and confirm it.');
+      setSubmitting(false);
+      await dialog.alert('Your appointment request was sent. The clinic assistant will review it and confirm your schedule. You can follow its status under History.', { title: 'Request submitted', variant: 'success' });
       if (onComplete) onComplete();
     } catch (err) {
       console.error('Error submitting appointment:', err);

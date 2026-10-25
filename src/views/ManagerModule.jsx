@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { supabase } from '../lib/supabase';
+import { dialog } from '../components/DialogHost';
 
 const startOfWeek = (date) => {
   const start = new Date(date.getFullYear(), date.getMonth(), date.getDate());
@@ -229,9 +230,14 @@ export default function ManagerModule({ services, addService, updateService, del
   const handlePatientDecision = async (account, decision) => {
     let reason = null;
     if (decision === 'Rejected') {
-      reason = window.prompt(`Reject ${account.full_name}'s registration?\nOptional reason (shown nowhere else, kept for your records):`, '');
+      reason = await dialog.prompt(`Reject ${account.full_name}'s registration?`, {
+        title: 'Reject registration',
+        placeholder: 'Optional reason (kept for your records)',
+        confirmText: 'Reject',
+        danger: true,
+      });
       if (reason === null) return; // cancelled
-    } else if (!window.confirm(`Accept ${account.full_name}'s account? They will be able to sign in and book appointments.`)) {
+    } else if (!(await dialog.confirm(`Accept ${account.full_name}'s account? They will be able to sign in and book appointments.`, { title: 'Accept patient account', confirmText: 'Accept', variant: 'success' }))) {
       return;
     }
     const { error } = await supabase
@@ -513,76 +519,106 @@ export default function ManagerModule({ services, addService, updateService, del
       )}
 
       {currentView === 'services' && (
-        <div className="h-full grid grid-cols-12 gap-6 overflow-hidden p-2">
-          {/* Left Form: Add / Edit Service */}
-          <div className="col-span-4 bg-white border border-[#d4e2dc] rounded-2xl p-6 shadow-2xs overflow-y-auto flex flex-col">
-            <h3 className="font-black text-lg text-[#13241b] mb-4">
-              {formEditingId ? 'Edit Service' : 'Add Clinic Service'}
-            </h3>
-            <form onSubmit={handleFormSubmit} className="space-y-4 flex-1 flex flex-col justify-between">
-              <div className="space-y-4">
+        <div className="h-full grid grid-cols-12 gap-8 overflow-hidden p-2">
+          {/* Left Form: Add / Edit Service (fills the full height of the card) */}
+          <div className="col-span-5 bg-white border border-[#d4e2dc] rounded-3xl p-8 shadow-2xs overflow-y-auto flex flex-col">
+            <div className="mb-6">
+              <h3 className="font-black text-2xl text-[#13241b]">
+                {formEditingId ? 'Edit Service' : 'Add Clinic Service'}
+              </h3>
+              <p className="text-sm text-[#607368] mt-1">
+                {formEditingId ? 'Update the details below, then save your changes.' : 'Create a new service patients can book.'}
+              </p>
+            </div>
+
+            <form onSubmit={handleFormSubmit} className="flex-1 flex flex-col gap-5 min-h-0">
+              {formError && (
+                <div className="bg-red-50 border border-red-200 text-red-700 text-sm p-3.5 rounded-2xl font-bold">{formError}</div>
+              )}
+
+              <div>
+                <label className="block text-sm font-bold text-[#164e43] mb-2">Select Category *</label>
+                <select required value={selectedCategory} onChange={handleCategoryChange} className="w-full border border-[#d4e2dc] rounded-2xl p-4 text-sm bg-[#f5f7f6] font-bold focus:outline-none focus:border-[#164e43]">
+                  <option value="">-- Choose Category --</option>
+                  {categoriesFromDb.map(cat => <option key={cat} value={cat}>{cat}</option>)}
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-sm font-bold text-[#164e43] mb-2">Service Name *</label>
+                <input type="text" required value={customServiceName} onChange={e => setCustomServiceName(e.target.value)} placeholder="Service Name" className="w-full border border-[#d4e2dc] rounded-2xl p-4 text-sm bg-[#f5f7f6] font-bold focus:outline-none focus:border-[#164e43]" />
+              </div>
+
+              {/* Description grows to take all the remaining space */}
+              <div className="flex-1 flex flex-col min-h-[160px]">
+                <label className="block text-sm font-bold text-[#164e43] mb-2">Service Description</label>
+                <textarea
+                  value={serviceDescription}
+                  onChange={e => setServiceDescription(e.target.value)}
+                  placeholder="Describe the service for patients"
+                  className="flex-1 w-full min-h-[120px] border border-[#d4e2dc] rounded-2xl p-4 text-sm bg-[#f5f7f6] font-medium resize-none focus:outline-none focus:border-[#164e43]"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-xs font-bold text-[#164e43] mb-1">Select Category *</label>
-                  <select required value={selectedCategory} onChange={handleCategoryChange} className="w-full border border-[#d4e2dc] rounded-xl p-3 text-xs bg-[#f5f7f6] font-bold">
-                    <option value="">-- Choose Category --</option>
-                    {categoriesFromDb.map(cat => <option key={cat} value={cat}>{cat}</option>)}
-                  </select>
+                  <label className="block text-sm font-bold text-[#607368] mb-2">Duration (mins)</label>
+                  <input type="number" required value={duration} onChange={e => setDuration(e.target.value)} className="w-full border border-[#d4e2dc] rounded-2xl p-4 text-sm bg-[#f5f7f6] font-bold focus:outline-none focus:border-[#164e43]" />
                 </div>
                 <div>
-                  <label className="block text-xs font-bold text-[#164e43] mb-1">Service Name *</label>
-                  <input type="text" required value={customServiceName} onChange={e => setCustomServiceName(e.target.value)} placeholder="Service Name" className="w-full border border-[#d4e2dc] rounded-xl p-3 text-xs bg-[#f5f7f6] font-bold" />
-                </div>
-                <div>
-                  <label className="block text-xs font-bold text-[#607368] mb-1">Service Description</label>
-                  <textarea
-                    rows="3"
-                    value={serviceDescription}
-                    onChange={e => setServiceDescription(e.target.value)}
-                    placeholder="Describe the service for patients"
-                    className="w-full resize-y border border-[#d4e2dc] rounded-xl p-3 text-xs bg-[#f5f7f6] text-[#13241b] focus:outline-none focus:border-[#164e43]"
-                  />
-                </div>
-                <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <label className="block text-xs font-bold text-[#607368] mb-1">Duration (mins)</label>
-                    <input type="number" required value={duration} onChange={e => setDuration(e.target.value)} className="w-full border border-[#d4e2dc] rounded-xl p-3 text-xs bg-[#f5f7f6] font-bold" />
-                  </div>
-                  <div>
-                    <label className="block text-xs font-bold text-[#607368] mb-1">Price (₱) *</label>
-                    <input type="number" required value={price} onChange={e => setPrice(e.target.value)} placeholder="1500" className="w-full border border-[#d4e2dc] rounded-xl p-3 text-xs bg-[#f5f7f6] font-bold" />
-                  </div>
+                  <label className="block text-sm font-bold text-[#607368] mb-2">Price (₱) *</label>
+                  <input type="number" required value={price} onChange={e => setPrice(e.target.value)} placeholder="1500" className="w-full border border-[#d4e2dc] rounded-2xl p-4 text-sm bg-[#f5f7f6] font-bold focus:outline-none focus:border-[#164e43]" />
                 </div>
               </div>
-              <button type="submit" className="w-full bg-[#164e43] text-white py-3.5 rounded-xl font-bold text-xs hover:bg-[#0f362e] transition cursor-pointer">
-                {formEditingId ? 'Update Service' : '+ Save Service'}
-              </button>
+
+              <div className="flex gap-3">
+                {formEditingId && (
+                  <button type="button" onClick={handleCancelFormEdit} className="px-6 bg-white border border-[#d4e2dc] text-[#13241b] py-4 rounded-2xl font-bold text-sm hover:bg-[#f5f7f6] transition cursor-pointer">
+                    Cancel
+                  </button>
+                )}
+                <button type="submit" className="flex-1 bg-[#164e43] text-white py-4 rounded-2xl font-bold text-base hover:bg-[#0f362e] transition cursor-pointer">
+                  {formEditingId ? 'Update Service' : '+ Save Service'}
+                </button>
+              </div>
             </form>
           </div>
 
           {/* Right Catalog Table */}
-          <div className="col-span-8 bg-white border border-[#d4e2dc] rounded-2xl p-6 shadow-2xs flex flex-col overflow-hidden">
-            <h3 className="font-black text-lg text-[#13241b] mb-4">Manage Services & Pricing</h3>
-            <div className="flex-1 overflow-y-auto">
+          <div className="col-span-7 bg-white border border-[#d4e2dc] rounded-3xl p-8 shadow-2xs flex flex-col overflow-hidden">
+            <div className="flex justify-between items-end mb-5">
+              <div>
+                <h3 className="font-black text-2xl text-[#13241b]">Manage Services &amp; Pricing</h3>
+                <p className="text-sm text-[#607368] mt-1">Click a row to edit it in the form.</p>
+              </div>
+              <span className="bg-[#e3ede6] text-[#164e43] text-sm font-bold px-4 py-1.5 rounded-full border border-[#d4e2dc]">
+                {filteredAndSortedServices.length} services
+              </span>
+            </div>
+            <div className="flex-1 overflow-y-auto pr-1">
               <table className="w-full text-left border-collapse">
-                <thead>
-                  <tr className="border-b border-[#d4e2dc] text-[11px] font-bold text-[#607368] uppercase">
-                    <th className="py-3 px-2">Service Title</th>
-                    <th className="py-3 px-2">Category</th>
-                    <th className="py-3 px-2 text-right">Price (₱)</th>
-                    <th className="py-3 px-2 text-center">Actions</th>
+                <thead className="sticky top-0 bg-white z-10">
+                  <tr className="border-b border-[#d4e2dc] text-xs font-bold text-[#607368] uppercase tracking-wide">
+                    <th className="py-4 px-3">Service Title</th>
+                    <th className="py-4 px-3">Category</th>
+                    <th className="py-4 px-3 text-right">Price (₱)</th>
+                    <th className="py-4 px-3 text-center">Actions</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-[#f0f5f2] text-xs">
+                <tbody className="divide-y divide-[#f0f5f2] text-sm">
                   {filteredAndSortedServices.map(s => (
-                    <tr key={s.id} onClick={() => handleSelectServiceToEdit(s)} className="hover:bg-[#f8faf9] cursor-pointer">
-                      <td className="py-3 px-2 font-bold text-[#13241b]">{s.service_name}</td>
-                      <td className="py-3 px-2">{s.category}</td>
-                      <td className="py-3 px-2 text-right font-black text-[#164e43]">₱{parseFloat(s.price || 0).toLocaleString()}</td>
-                      <td className="py-3 px-2 text-center" onClick={e => e.stopPropagation()}>
-                        <button type="button" onClick={() => confirmDelete(s.id)} className="bg-red-50 text-red-600 px-3 py-1.5 rounded-lg font-bold text-xs">Remove</button>
+                    <tr key={s.id} onClick={() => handleSelectServiceToEdit(s)} className={`hover:bg-[#f8faf9] cursor-pointer ${formEditingId === s.id ? 'bg-[#e3ede6]' : ''}`}>
+                      <td className="py-5 px-3 font-bold text-[#13241b]">{s.service_name}</td>
+                      <td className="py-5 px-3"><span className="bg-[#f0f5f2] text-[#164e43] text-xs font-bold px-3 py-1 rounded-full">{s.category}</span></td>
+                      <td className="py-5 px-3 text-right font-black text-[#164e43] text-base">₱{parseFloat(s.price || 0).toLocaleString()}</td>
+                      <td className="py-5 px-3 text-center" onClick={e => e.stopPropagation()}>
+                        <button type="button" onClick={() => confirmDelete(s.id)} className="bg-red-50 hover:bg-red-100 text-red-600 px-4 py-2 rounded-xl font-bold text-sm cursor-pointer transition">Remove</button>
                       </td>
                     </tr>
                   ))}
+                  {filteredAndSortedServices.length === 0 && (
+                    <tr><td colSpan="4" className="py-10 text-center text-gray-400 font-medium">No services yet. Add one using the form.</td></tr>
+                  )}
                 </tbody>
               </table>
             </div>

@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { supabase } from '../lib/supabase';
+import { dialog } from '../components/DialogHost';
 import TreatmentRecordModal from '../components/TreatmentRecordModal';
 import useTreatmentRecords from '../lib/useTreatmentRecords';
 
@@ -86,7 +87,7 @@ export default function AssistantModule({ appointments = [], updateAppointmentSt
   };
 
   const run = async (a, status, { confirmText, queue } = {}) => {
-    if (confirmText && !window.confirm(confirmText)) return;
+    if (confirmText && !(await dialog.confirm(confirmText, { title: 'Please confirm', confirmText: 'Yes, continue' }))) return;
     setBusyId(a.id);
     try {
       await updateAppointmentStatus(a.id, status, queue ?? a.queue_number);
@@ -98,7 +99,7 @@ export default function AssistantModule({ appointments = [], updateAppointmentSt
   const assignDoctor = async (a, name) => {
     if (!name) return;
     const { error } = await supabase.from('appointments').update({ assigned_dentist: name }).eq('id', a.id);
-    if (error) { window.alert(`Could not assign the doctor: ${error.message}`); return; }
+    if (error) { await dialog.alert(`Could not assign the doctor: ${error.message}`, { title: 'Not assigned', variant: 'error' }); return; }
     setOverrides((prev) => ({ ...prev, [a.id]: name }));
   };
 
@@ -118,17 +119,17 @@ export default function AssistantModule({ appointments = [], updateAppointmentSt
   // Only one patient per doctor in the chair. Checked locally and again against the database.
   const sendToChair = async (a) => {
     const doc = doctorOf(a);
-    if (!doc) { window.alert('Assign a doctor to this appointment first.'); return; }
+    if (!doc) { await dialog.alert('Assign a doctor to this appointment first.', { title: 'No doctor assigned', variant: 'warning' }); return; }
 
     const localBusy = appointments.find((x) => x.id !== a.id && doctorOf(x) === doc && x.status === 'In Treatment');
-    if (localBusy) { window.alert(`${doc} is already treating ${localBusy.patient_name}. Mark that visit as done first.`); return; }
+    if (localBusy) { await dialog.alert(`${doc} is already treating ${localBusy.patient_name}. Mark that visit as done first.`, { title: 'Chair occupied', variant: 'warning' }); return; }
 
     setBusyId(a.id);
     const { data } = await supabase.from('appointments').select('id, patient_name')
       .eq('assigned_dentist', doc).eq('status', 'In Treatment').neq('id', a.id).limit(1);
     setBusyId(null);
     if (data && data.length > 0) {
-      window.alert(`${doc} is already treating ${data[0].patient_name}. Mark that visit as done first.`);
+      await dialog.alert(`${doc} is already treating ${data[0].patient_name}. Mark that visit as done first.`, { title: 'Chair occupied', variant: 'warning' });
       return;
     }
     return run(a, 'In Treatment');
@@ -142,7 +143,7 @@ export default function AssistantModule({ appointments = [], updateAppointmentSt
     setBusyId(null);
     if (error || !data || data.length === 0) {
       refreshRecords();
-      window.alert(`The dentist has not issued treatment notes or a prescription for ${a.patient_name} yet. The visit can be marked as done after they do.`);
+      await dialog.alert(`The dentist has not issued treatment notes or a prescription for ${a.patient_name} yet. The visit can be marked as done after they do.`, { title: 'Doctor\'s notes required', variant: 'warning' });
       return;
     }
     return run(a, 'Completed', { confirmText: `Mark ${a.patient_name}'s treatment as done?` });

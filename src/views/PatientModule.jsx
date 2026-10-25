@@ -25,6 +25,8 @@ export default function PatientModule({ services, dentists, createAppointment, a
 
   // The signed-in patient's own account record (used for booking and the tooth chart)
   const [profile, setProfile] = useState(null);
+  const [bookingService, setBookingService] = useState(null); // service chosen with "Book this service"
+  useEffect(() => { if (currentView !== 'book') setBookingService(null); }, [currentView]);
   useEffect(() => {
     if (!user?.id) return;
     supabase.from('staff_users').select('*').eq('id', user.id).single()
@@ -184,7 +186,7 @@ export default function PatientModule({ services, dentists, createAppointment, a
                     <span className="starting-label">Starting at</span>
                     <strong>₱{Number(service.price).toLocaleString('en-PH')}</strong>
                   </div>
-                  <button type="button" onClick={() => onViewChange('book')}>Book this service</button>
+                  <button type="button" onClick={() => { setBookingService(service); onViewChange('book'); }}>Book this service</button>
                 </footer>
               </article>
             ))}
@@ -196,11 +198,13 @@ export default function PatientModule({ services, dentists, createAppointment, a
       {currentView === 'book' && (
         <div className="h-full">
           <AppointmentRegistrationWizard
+            key={bookingService?.id || 'new-booking'}
+            initialService={bookingService}
             embedded
             patient={profile || { full_name: user?.name, name: user?.name }}
             createAppointment={createAppointment}
             existingAppointments={appointments}
-            onComplete={() => onViewChange('history')}
+            onComplete={() => { setBookingService(null); onViewChange('history'); }}
           />
         </div>
       )}

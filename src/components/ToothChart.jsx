@@ -34,6 +34,23 @@ const toothName = (n) => {
   return `${arch} ${side} ${kind}`;
 };
 
+const formatDateTime = (iso) =>
+  new Date(iso).toLocaleString('en-PH', { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' });
+
+const timeAgo = (iso) => {
+  const mins = Math.max(0, Math.round((Date.now() - new Date(iso).getTime()) / 60000));
+  if (mins < 1) return 'just now';
+  if (mins < 60) return `${mins} min ago`;
+  const hrs = Math.round(mins / 60);
+  if (hrs < 24) return `${hrs} hr${hrs === 1 ? '' : 's'} ago`;
+  const days = Math.round(hrs / 24);
+  if (days < 30) return `${days} day${days === 1 ? '' : 's'} ago`;
+  const months = Math.round(days / 30);
+  return months < 12 ? `${months} mo ago` : `${Math.round(months / 12)} yr ago`;
+};
+
+const RECENT_DAYS = 7;
+
 // One tooth drawn upright for the upper arch (roots on top). Lower teeth are flipped vertically.
 function ToothShape({ number, status, selected, flipped, onClick }) {
   const kind = toothKind(number);
@@ -65,7 +82,7 @@ function ToothShape({ number, status, selected, flipped, onClick }) {
   );
 }
 
-function Arch({ numbers, chart, selected, onSelect, flipped }) {
+function Arch({ numbers, chart, selected, onSelect, flipped, recent }) {
   return (
     <svg viewBox={`0 0 ${numbers.length * 46} 90`} className="w-full" role="group" aria-label={flipped ? 'Lower teeth' : 'Upper teeth'}>
       {numbers.map((n, i) => {
@@ -77,6 +94,7 @@ function Arch({ numbers, chart, selected, onSelect, flipped }) {
         return (
           <g key={n} transform={`translate(${x + midGap},${flipped ? 20 : 0})`}>
             <ToothShape number={n} status={chart[n]?.status || 'healthy'} selected={selected === n} flipped={flipped} onClick={() => onSelect(n)} />
+            {recent.has(n) && <circle cx={37} cy={flipped ? -12 : 76} r={3.5} fill="#f59e0b"><title>Changed in the last {RECENT_DAYS} days</title></circle>}
             {flipped ? (
               <text x={22} y={-8} textAnchor="middle" fontSize="11" fontWeight="700" fill={selected === n ? '#164e43' : '#607368'}>{n}</text>
             ) : (
@@ -94,8 +112,9 @@ function Arch({ numbers, chart, selected, onSelect, flipped }) {
  *  - patientId: staff_users.id of the patient
  *  - canEdit:   true for the dentist, false (read-only) for the patient
  */
-export default function ToothChart({ patientId, patientName, canEdit = false, editorName = '' }) {
+export default function ToothChart({ patientId, patientName, canEdit = false, editorName = '', readOnlyReason = '', beforeSave = null }) {
   const [chart, setChart] = useState({});
+  const [history, setHistory] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [selected, setSelected] = useState(null);
@@ -115,6 +134,14 @@ export default function ToothChart({ patientId, patientName, canEdit = false, ed
     } else {
       setChart(Object.fromEntries((data || []).map((r) => [r.tooth_number, r])));
     }
+    const { data: logs, error: logsErr } = await supabase
+      .from('tooth_chart_history').select('*').eq('patient_id', patientId).order('created_at', { ascending: false });
+    if (logsErr) {
+      setHistory([]);
+      if (!err) setError(`Could not load tooth history: ${logsErr.message}. Run section 4 of supabase_migration.sql.`);
+    } else {
+      setHistory(logs || []);
+    }
     setLoading(false);
   }, [patientId]);
 
@@ -129,25 +156,74 @@ export default function ToothChart({ patientId, patientName, canEdit = false, ed
 
   const save = async () => {
     if (!selected) return;
+    const current = chart[selected];
+    const cleanNotes = draftNotes.trim() || null;
+    if ((current?.status || 'healthy') === draftStatus && (current?.notes || null) === cleanNotes) {
+      setSavedMsg('No changes to save.');
+      return;
+    }
     setSaving(true);
     setError('');
+    if (beforeSave) {
+      const blocked = await beforeSave(); // e.g. the patient must currently be in treatment
+      if (blocked) { setError(blocked); setSaving(false); return; }
+    }
     const row = {
       patient_id: patientId,
       tooth_number: selected,
       status: draftStatus,
-      notes: draftNotes.trim() || null,
+      notes: cleanNotes,
       updated_by: editorName || null,
       updated_at: new Date().toISOString(),
     };
     const { error: err } = await supabase.from('tooth_chart').upsert(row, { onConflict: 'patient_id,tooth_number' });
     if (err) {
       setError(`Could not save: ${err.message}`);
-    } else {
-      setChart((prev) => ({ ...prev, [selected]: row }));
-      setSavedMsg(`Tooth ${selected} updated.`);
+      setSaving(false);
+      return;
     }
+    setChart((prev) => ({ ...prev, [selected]: row }));
+
+    // Dated log entry for this change
+    const { data: logged, error: logErr } = await supabase
+      .from('tooth_chart_history')
+      .insert({
+        patient_id: patientId,
+        tooth_number: selected,
+        status: draftStatus,
+        previous_status: current?.status || 'healthy',
+        notes: cleanNotes,
+        updated_by: editorName || null,
+      })
+      .select()
+      .single();
+    if (logErr) {
+      setError(`Tooth saved, but the history entry could not be recorded: ${logErr.message}. Run section 4 of supabase_migration.sql.`);
+    } else {
+      setHistory((prev) => [logged, ...prev]);
+    }
+    setSavedMsg(`Tooth ${selected} updated.`);
     setSaving(false);
   };
+
+  // Every dated entry, newest first. Teeth charted before history existed get one entry from their current record.
+  const entries = useMemo(() => {
+    const list = [...history];
+    const logged = new Set(history.map((h) => h.tooth_number));
+    Object.values(chart).forEach((r) => {
+      if (!logged.has(r.tooth_number) && r.updated_at) {
+        list.push({ id: `legacy-${r.tooth_number}`, tooth_number: r.tooth_number, status: r.status, previous_status: null, notes: r.notes, updated_by: r.updated_by, created_at: r.updated_at });
+      }
+    });
+    return list.filter((e) => e.created_at).sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+  }, [history, chart]);
+
+  const recentTeeth = useMemo(() => {
+    const cutoff = Date.now() - RECENT_DAYS * 86400000;
+    return new Set(entries.filter((e) => new Date(e.created_at).getTime() >= cutoff).map((e) => e.tooth_number));
+  }, [entries]);
+
+  const toothEntries = useMemo(() => entries.filter((e) => e.tooth_number === selected), [entries, selected]);
 
   const counts = useMemo(() => {
     const c = {};
@@ -181,19 +257,26 @@ export default function ToothChart({ patientId, patientName, canEdit = false, ed
           {lastUpdate && <span className="text-[11px] font-bold bg-[#e3ede6] text-[#164e43] px-3 py-1 rounded-full">Last updated {lastUpdate}</span>}
         </div>
 
+        {!canEdit && readOnlyReason && (
+          <div className="bg-amber-50 border border-amber-200 text-amber-800 text-xs p-3.5 rounded-xl font-bold">🔒 {readOnlyReason}</div>
+        )}
+
         {loading ? (
           <div className="py-10 text-center text-xs font-bold text-[#607368]">Loading chart...</div>
         ) : (
           <div className="space-y-1">
             <div className="flex justify-between text-[10px] font-black uppercase tracking-wider text-[#607368] px-1"><span>Patient's right</span><span>Upper</span><span>Patient's left</span></div>
-            <Arch numbers={UPPER} chart={chart} selected={selected} onSelect={selectTooth} flipped={false} />
+            <Arch numbers={UPPER} chart={chart} selected={selected} onSelect={selectTooth} flipped={false} recent={recentTeeth} />
             <div className="border-t border-dashed border-[#d4e2dc]" />
-            <Arch numbers={LOWER} chart={chart} selected={selected} onSelect={selectTooth} flipped />
+            <Arch numbers={LOWER} chart={chart} selected={selected} onSelect={selectTooth} flipped recent={recentTeeth} />
             <div className="flex justify-between text-[10px] font-black uppercase tracking-wider text-[#607368] px-1"><span>Patient's right</span><span>Lower</span><span>Patient's left</span></div>
           </div>
         )}
 
         <div className="flex flex-wrap gap-x-4 gap-y-2 pt-2 border-t border-[#f0f5f2]">
+          <span className="flex items-center gap-1.5 text-[11px] font-semibold text-[#13241b]">
+            <span className="inline-block w-2.5 h-2.5 rounded-full bg-amber-400" /> Changed in last {RECENT_DAYS} days
+          </span>
           {Object.entries(TOOTH_STATUSES).map(([key, s]) => (
             <span key={key} className="flex items-center gap-1.5 text-[11px] font-semibold text-[#13241b]">
               <span className="inline-block w-3.5 h-3.5 rounded" style={{ background: s.fill === 'none' ? 'transparent' : s.fill, border: `1.5px ${key === 'missing' ? 'dashed' : 'solid'} ${s.stroke}` }} />
@@ -249,6 +332,62 @@ export default function ToothChart({ patientId, patientName, canEdit = false, ed
               {sel?.notes || 'No notes recorded for this tooth.'}
             </p>
           )}
+
+          {/* History log for this tooth */}
+          <div className="pt-3 border-t border-[#f0f5f2]">
+            <h5 className="text-[11px] font-black uppercase tracking-wider text-[#164e43] mb-3">History log ({toothEntries.length})</h5>
+            {toothEntries.length === 0 ? (
+              <p className="text-xs text-[#607368]">No changes have been recorded for this tooth yet.</p>
+            ) : (
+              <ol className="relative border-l-2 border-[#e3ede6] ml-2 space-y-4">
+                {toothEntries.map((e, i) => {
+                  const st = TOOTH_STATUSES[e.status] || TOOTH_STATUSES.healthy;
+                  const prev = e.previous_status ? TOOTH_STATUSES[e.previous_status] : null;
+                  return (
+                    <li key={e.id} className="ml-4">
+                      <span
+                        className="absolute -left-[7px] mt-1 w-3 h-3 rounded-full border-2"
+                        style={{ background: st.fill === 'none' ? '#fff' : st.fill, borderColor: st.stroke }}
+                      />
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="text-xs font-black text-[#13241b]">
+                          {prev && e.previous_status !== e.status ? `${prev.label} → ${st.label}` : st.label}
+                        </span>
+                        {i === 0 && <span className="text-[10px] font-black bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded-full">Latest</span>}
+                      </div>
+                      <div className="text-[11px] text-[#607368]">
+                        {formatDateTime(e.created_at)} · {timeAgo(e.created_at)}{e.updated_by ? ` · by ${e.updated_by}` : ''}
+                      </div>
+                      {e.notes && <p className="mt-1 text-xs text-[#13241b] bg-[#f8faf9] border border-[#e5ece8] rounded-lg p-2 whitespace-pre-wrap">{e.notes}</p>}
+                    </li>
+                  );
+                })}
+              </ol>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Recent activity across all teeth */}
+      {!loading && entries.length > 0 && (
+        <div className="bg-white border border-[#d4e2dc] rounded-2xl p-5 shadow-2xs">
+          <h4 className="font-black text-sm text-[#13241b] mb-3">Recent activity</h4>
+          <ul className="divide-y divide-[#f0f5f2]">
+            {entries.slice(0, 8).map((e, i) => {
+              const st = TOOTH_STATUSES[e.status] || TOOTH_STATUSES.healthy;
+              return (
+                <li key={e.id}>
+                  <button type="button" onClick={() => selectTooth(e.tooth_number)} className="w-full flex items-center gap-3 py-2.5 text-left cursor-pointer hover:bg-[#f8faf9] rounded-lg px-1">
+                    <span className="w-3 h-3 rounded-full border-2 shrink-0" style={{ background: st.fill === 'none' ? '#fff' : st.fill, borderColor: st.stroke }} />
+                    <span className="text-xs font-black text-[#13241b] w-16 shrink-0">Tooth {e.tooth_number}</span>
+                    <span className="text-xs text-[#13241b] flex-1 truncate">{st.label}{e.notes ? ` · ${e.notes}` : ''}</span>
+                    {i === 0 && <span className="text-[10px] font-black bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded-full">Latest</span>}
+                    <span className="text-[11px] text-[#607368] shrink-0">{formatDateTime(e.created_at)} · {timeAgo(e.created_at)}</span>
+                  </button>
+                </li>
+              );
+            })}
+          </ul>
         </div>
       )}
     </div>
