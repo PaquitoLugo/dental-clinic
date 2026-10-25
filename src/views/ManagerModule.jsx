@@ -22,6 +22,15 @@ const dateKey = (date) => {
 
 const formatTime = (time = '') => time.slice(0, 5);
 
+const appointmentBadgeStyle = {
+  Pending: 'bg-gray-100 text-gray-700',
+  Accepted: 'bg-emerald-100 text-emerald-700',
+  'In Queue': 'bg-blue-100 text-blue-700',
+  'In Treatment': 'bg-amber-100 text-amber-700',
+  Completed: 'bg-green-100 text-green-700',
+  Rejected: 'bg-red-100 text-red-700',
+};
+
 const appointmentStatusColor = (status) => {
   switch (status) {
     case 'Pending': return 'border-l-amber-500 bg-amber-50';
@@ -319,7 +328,9 @@ export default function ManagerModule({ services, addService, updateService, del
   const chartValues = chartDays.map(day => periodCompleted.filter(a => a.appointment_date === dateKey(day)).reduce((sum, a) => sum + servicePrice(a), 0));
   const chartMax = Math.max(...chartValues, 1);
   const todayKey = dateKey(dashboardToday);
-  const todaySchedule = appointments.filter(a => a.appointment_date === todayKey).sort((a, b) => formatTime(a.appointment_time).localeCompare(formatTime(b.appointment_time)));
+  const todaySchedule = appointments
+    .filter(a => a.appointment_date === todayKey && !['Pending', 'Rejected'].includes(a.status))
+    .sort((a, b) => formatTime(a.appointment_time).localeCompare(formatTime(b.appointment_time)));
   const topServices = Object.entries(periodAppointments.reduce((counts, a) => {
     const name = a.service_name || 'Other';
     counts[name] = (counts[name] || 0) + 1;
@@ -409,7 +420,7 @@ export default function ManagerModule({ services, addService, updateService, del
           </div>
           <div className="grid grid-cols-1 xl:grid-cols-[1.4fr_1fr] gap-4">
             <section className="bg-white border border-[#d4e2dc] rounded-2xl p-5 min-h-[300px]"><h3 className="font-black text-xl mb-5">Revenue trend</h3><div className="h-56 flex items-end justify-around gap-2 border-b border-[#e5ece8]">{chartDays.map((day, i) => <div key={dateKey(day)} className="h-full flex-1 flex flex-col justify-end items-center gap-2 min-w-0"><div title={`₱${chartValues[i].toLocaleString('en-PH')}`} className={`w-full max-w-14 rounded-t-lg border border-[#407368] ${dateKey(day) === todayKey ? 'bg-[#164e43]' : 'bg-[#e2eee9]'}`} style={{ height: `${chartValues[i] ? Math.max((chartValues[i] / chartMax) * 80, 8) : 0}%` }} /><span className="text-xs text-[#71827c]">{dashboardPeriod === 'today' ? 'Today' : dashboardPeriod === 'month' ? day.getDate() : day.toLocaleDateString('en-US', { weekday: 'short' })}</span></div>)}</div></section>
-            <section className="bg-white border border-[#d4e2dc] rounded-2xl p-5"><h3 className="font-black text-xl mb-4">Today’s schedule</h3><div className="divide-y divide-[#dce6e2]">{todaySchedule.length ? todaySchedule.map(a => <div key={a.id} className="py-3 flex items-center gap-3"><span className="text-sm text-[#71827c] w-14 shrink-0">{formatTime(a.appointment_time)}</span><div className="min-w-0 flex-1"><p className="font-bold truncate">{a.patient_name || 'Patient'}</p><p className="text-sm text-[#71827c] truncate">{a.service_name || 'Appointment'}{a.assigned_dentist ? ` · Dr. ${a.assigned_dentist}` : ''}</p></div><span className="text-xs font-semibold rounded-full border px-3 py-1 whitespace-nowrap">{a.status}</span></div>) : <p className="py-8 text-sm text-[#71827c]">No appointments scheduled today.</p>}</div></section>
+            <section className="bg-white border border-[#d4e2dc] rounded-2xl p-5"><h3 className="font-black text-xl mb-4">Today’s schedule</h3><div className="divide-y divide-[#dce6e2]">{todaySchedule.length ? todaySchedule.map(a => <div key={a.id} className="py-3 flex items-center gap-3"><span className="text-sm text-[#71827c] w-14 shrink-0">{formatTime(a.appointment_time)}</span><div className="min-w-0 flex-1"><p className="font-bold truncate">{a.patient_name || 'Patient'}</p><p className="text-sm text-[#71827c] truncate">{a.service_name || 'Appointment'}{a.assigned_dentist ? ` · Dr. ${a.assigned_dentist}` : ''}</p></div><span className={`px-2.5 py-1 rounded-md text-[11px] font-bold ${appointmentBadgeStyle[a.status] || 'bg-gray-100 text-gray-700'}`}>{a.status}</span></div>) : <p className="py-8 text-sm text-[#71827c]">No appointments scheduled today.</p>}</div></section>
           </div>
           <section className="bg-white border border-[#d4e2dc] rounded-2xl p-5"><h3 className="font-black text-xl mb-4">Top services</h3>{topServices.length ? <div className="space-y-3">{topServices.map(([name, count]) => <div key={name} className="grid grid-cols-[minmax(120px,180px)_1fr_24px] items-center gap-3"><span className="truncate text-sm">{name}</span><div className="h-3 rounded-full bg-[#e2eee9] overflow-hidden"><div className="h-full rounded-full bg-[#164e43]" style={{ width: `${(count / topServices[0][1]) * 100}%` }} /></div><span className="text-sm font-bold">{count}</span></div>)}</div> : <p className="text-sm text-[#71827c]">No appointments in this period.</p>}</section>
         </div>
