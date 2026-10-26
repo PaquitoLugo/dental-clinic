@@ -76,6 +76,14 @@ function MainWorkspace({ authenticatedUser, handleLogout }) {
                 >
                   <span>User Management</span>
                 </button>
+                <button
+                  onClick={() => setCurrentView('activity')}
+                  className={`w-full flex items-center px-4 py-3 rounded-xl font-bold text-xs transition cursor-pointer ${
+                    currentView === 'activity' ? 'bg-[#164e43] text-white' : 'text-[#607368] hover:bg-[#f5f7f6]'
+                  }`}
+                >
+                  <span>Activity Logs</span>
+                </button>
               </>
             )}
 
@@ -195,7 +203,7 @@ function MainWorkspace({ authenticatedUser, handleLogout }) {
       </aside>
 
       <main className="flex-1 h-full overflow-hidden p-8 flex flex-col">
-        {isManager && <ManagerModule {...contextData} currentView={currentView} />}
+        {isManager && <ManagerModule {...contextData} currentView={currentView} user={authenticatedUser} />}
         {isDentist && (
           <DentistModule 
             {...contextData} 
@@ -205,7 +213,7 @@ function MainWorkspace({ authenticatedUser, handleLogout }) {
             user={authenticatedUser} 
           />
         )}
-        {isAssistant && <AssistantModule {...contextData} />}
+        {isAssistant && <AssistantModule {...contextData} user={authenticatedUser} />}
         {isPatient && (
           <PatientModule 
             {...contextData} 

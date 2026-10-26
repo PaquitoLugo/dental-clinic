@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { supabase } from '../lib/supabase';
+import { recordActivity } from '../lib/activityLog';
 
 // FDI two-digit notation (ISO 3950), adult dentition, viewed as the dentist faces the patient:
 // the patient's right side is on the left of the screen.
@@ -112,7 +113,7 @@ function Arch({ numbers, chart, selected, onSelect, flipped, recent }) {
  *  - patientId: staff_users.id of the patient
  *  - canEdit:   true for the dentist, false (read-only) for the patient
  */
-export default function ToothChart({ patientId, patientName, canEdit = false, editorName = '', readOnlyReason = '', beforeSave = null }) {
+export default function ToothChart({ patientId, patientName, canEdit = false, editorName = '', readOnlyReason = '', beforeSave = null, activityUser = null }) {
   const [chart, setChart] = useState({});
   const [history, setHistory] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -183,6 +184,11 @@ export default function ToothChart({ patientId, patientName, canEdit = false, ed
       return;
     }
     setChart((prev) => ({ ...prev, [selected]: row }));
+    await recordActivity(activityUser, {
+      action: `Updated ${patientName || 'patient'} tooth ${selected}: ${draftStatus}`,
+      entityType: 'tooth_chart', entityId: `${patientId}-${selected}`,
+      details: { previous_status: current?.status || 'healthy', status: draftStatus }
+    });
 
     // Dated log entry for this change
     const { data: logged, error: logErr } = await supabase

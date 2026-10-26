@@ -4,6 +4,8 @@ import { dialog } from '../components/DialogHost';
 import TreatmentRecordModal from '../components/TreatmentRecordModal';
 import useTreatmentRecords from '../lib/useTreatmentRecords';
 import usePatientContacts from '../data/usePatientContacts';
+import { isAccountActive } from '../data/useSessionGuard';
+import { recordActivity } from '../lib/activityLog';
 
 // Appointment lifecycle handled by the dental assistant:
 //   Pending -> Accepted (or Rejected) -> In Queue -> In Treatment -> Completed
@@ -28,7 +30,7 @@ const formatTime = (t) => {
   return `${h % 12 || 12}:${m[2]} ${h >= 12 ? 'PM' : 'AM'}`;
 };
 
-export default function AssistantModule({ appointments = [], updateAppointmentStatus, dentists = [] }) {
+export default function AssistantModule({ appointments = [], updateAppointmentStatus, dentists = [], user }) {
   const [filter, setFilter] = useState('Active');
   const [doctorFilter, setDoctorFilter] = useState('All');
   const [busyId, setBusyId] = useState(null);
@@ -37,6 +39,38 @@ export default function AssistantModule({ appointments = [], updateAppointmentSt
   const { records, refresh: refreshRecords } = useTreatmentRecords();
   const contactFor = usePatientContacts();
   const [viewing, setViewing] = useState(null);
+  const [attendanceLog, setAttendanceLog] = useState(() => {
+    const todayKey = new Date().toISOString().split('T')[0];
+    const saved = localStorage.getItem(`assistant_attendance_${user?.id || 'assistant'}_${todayKey}`);
+    return saved ? JSON.parse(saved) : { timeIn: null, timeOut: null };
+  });
+
+  const requireActiveAccount = async () => {
+    if (await isAccountActive(user?.id)) return true;
+    await dialog.alert('Your account has been archived, so this action is not allowed.', { title: 'Account archived', variant: 'error' });
+    return false;
+  };
+
+  const handleClockIn = async () => {
+    if (!(await requireActiveAccount())) return;
+    const nowTime = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: true });
+    const todayKey = new Date().toISOString().split('T')[0];
+    const newLog = { ...attendanceLog, timeIn: nowTime };
+    setAttendanceLog(newLog);
+    localStorage.setItem(`assistant_attendance_${user?.id || 'assistant'}_${todayKey}`, JSON.stringify(newLog));
+    await recordActivity(user, { action: 'Clocked in', entityType: 'attendance', entityId: `${user?.id || 'assistant'}-${todayKey}` });
+  };
+
+  const handleClockOut = async () => {
+    if (!(await requireActiveAccount())) return;
+    if (!(await dialog.confirm('Are you sure you want to record your time-out?', { title: 'Confirm time-out', confirmText: 'Time-Out' }))) return;
+    const nowTime = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: true });
+    const todayKey = new Date().toISOString().split('T')[0];
+    const newLog = { ...attendanceLog, timeOut: nowTime };
+    setAttendanceLog(newLog);
+    localStorage.setItem(`assistant_attendance_${user?.id || 'assistant'}_${todayKey}`, JSON.stringify(newLog));
+    await recordActivity(user, { action: 'Clocked out', entityType: 'attendance', entityId: `${user?.id || 'assistant'}-${todayKey}` });
+  };
 
   // Doctors come from the shared context; fall back to a direct query if it has none
   useEffect(() => {
@@ -93,7 +127,12 @@ export default function AssistantModule({ appointments = [], updateAppointmentSt
     if (confirmText && !(await dialog.confirm(confirmText, { title: 'Please confirm', confirmText: 'Yes, continue' }))) return;
     setBusyId(a.id);
     try {
-      await updateAppointmentStatus(a.id, status, queue ?? a.queue_number);
+      const updated = await updateAppointmentStatus(a.id, status, queue ?? a.queue_number);
+      if (updated !== false) await recordActivity(user, {
+        action: `${status} appointment for ${a.patient_name}`,
+        entityType: 'appointment', entityId: a.id,
+        details: { previous_status: a.status, status, appointment_date: a.appointment_date }
+      });
     } finally {
       setBusyId(null);
     }
@@ -103,6 +142,11 @@ export default function AssistantModule({ appointments = [], updateAppointmentSt
     if (!name) return;
     const { error } = await supabase.from('appointments').update({ assigned_dentist: name }).eq('id', a.id);
     if (error) { await dialog.alert(`Could not assign the doctor: ${error.message}`, { title: 'Not assigned', variant: 'error' }); return; }
+    await recordActivity(user, {
+      action: `Assigned ${name} to ${a.patient_name}'s appointment`,
+      entityType: 'appointment', entityId: a.id,
+      details: { assigned_dentist: name }
+    });
     setOverrides((prev) => ({ ...prev, [a.id]: name }));
   };
 
@@ -199,14 +243,26 @@ export default function AssistantModule({ appointments = [], updateAppointmentSt
 
   return (
     <div className="h-full w-full bg-white border border-[#d4e2dc] rounded-2xl p-6 shadow-2xs flex flex-col overflow-hidden">
-      <div className="flex justify-between items-center mb-4">
+      <div className="flex flex-wrap justify-between items-center gap-3 mb-4">
         <div>
           <h3 className="font-black text-xl text-[#13241b]">Patient Queue &amp; Check-in</h3>
           <p className="text-xs text-[#607368] mt-1">Each doctor treats one patient at a time. Pick a doctor to see only their patients.</p>
         </div>
-        <span className="bg-[#e3ede6] text-[#164e43] text-xs font-bold px-4 py-1.5 rounded-full border border-[#d4e2dc]">
-          Showing {visible.length} of {appointments.length}
-        </span>
+        <div className="flex flex-wrap items-center gap-3">
+          <div className="bg-white border border-[#d4e2dc] px-4 py-2 rounded-2xl flex items-center gap-3 shadow-2xs">
+            <div>
+              <span className="text-[10px] text-[#607368] font-bold uppercase tracking-wider block">Today's Shift</span>
+              <span className="text-xs font-bold text-[#13241b]">In: {attendanceLog.timeIn || '—'} | Out: {attendanceLog.timeOut || '—'}</span>
+            </div>
+            <div className="flex gap-2">
+              <button type="button" onClick={handleClockIn} disabled={attendanceLog.timeIn !== null} className="bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white px-3 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer shadow-2xs">Time-In</button>
+              <button type="button" onClick={handleClockOut} disabled={attendanceLog.timeIn === null || attendanceLog.timeOut !== null} className="bg-amber-600 hover:bg-amber-700 disabled:opacity-50 text-white px-3 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer shadow-2xs">Time-Out</button>
+            </div>
+          </div>
+          <span className="bg-[#e3ede6] text-[#164e43] text-xs font-bold px-4 py-1.5 rounded-full border border-[#d4e2dc]">
+            Showing {visible.length} of {appointments.length}
+          </span>
+        </div>
       </div>
 
       {/* Doctor board: who is in the chair, who is waiting */}

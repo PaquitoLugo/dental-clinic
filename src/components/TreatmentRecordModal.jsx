@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { supabase } from '../lib/supabase';
+import { recordActivity } from '../lib/activityLog';
 
 const fieldClass = 'w-full border border-[#d4e2dc] rounded-xl p-3 text-xs bg-[#f5f7f6] focus:outline-none focus:border-[#164e43]';
 const labelClass = 'block text-xs font-bold text-[#13241b] mb-1';
@@ -9,7 +10,7 @@ const labelClass = 'block text-xs font-bold text-[#13241b] mb-1';
  *  - canEdit true  (dentist): form, saved to treatment_records
  *  - canEdit false (assistant / patient): read-only view
  */
-export default function TreatmentRecordModal({ appointment, record, canEdit = false, issuedBy = '', onClose, onSaved }) {
+export default function TreatmentRecordModal({ appointment, record, canEdit = false, issuedBy = '', activityUser, onClose, onSaved }) {
   const [notes, setNotes] = useState(record?.notes || '');
   const [prescription, setPrescription] = useState(record?.prescription || '');
   const [followUp, setFollowUp] = useState(record?.follow_up || '');
@@ -40,6 +41,11 @@ export default function TreatmentRecordModal({ appointment, record, canEdit = fa
       setError(`Could not save: ${err.message}. If the table is missing, run supabase_migration.sql.`);
       return;
     }
+    await recordActivity(activityUser, {
+      action: `${record ? 'Updated' : 'Issued'} treatment record for ${appointment.patient_name}`,
+      entityType: 'treatment_record', entityId: appointment.id,
+      details: { service_name: appointment.service_name }
+    });
     onSaved?.();
     onClose();
   };

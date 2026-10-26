@@ -48,8 +48,12 @@ export function ClinicProvider({ children }) {
       .from('appointments')
       .update({ status, queue_number })
       .eq('id', id);
-    if (error) alert('Supabase Error: ' + error.message);
-    else await refreshData();
+    if (error) {
+      alert('Supabase Error: ' + error.message);
+      return false;
+    }
+    await refreshData();
+    return true;
   };
 
   // Direct Supabase Insert

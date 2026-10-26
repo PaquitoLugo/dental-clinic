@@ -8,6 +8,7 @@ import useTreatmentRecords from '../lib/useTreatmentRecords';
 import usePatientContacts from '../data/usePatientContacts';
 import { belongsToPatient } from '../data/patientMatch';
 import { isAccountActive } from '../data/useSessionGuard';
+import { recordActivity } from '../lib/activityLog';
 
 // "23:38:00" / "13:00" -> "11:38 PM" / "1:00 PM"
 const formatApptTime = (t) => {
@@ -104,6 +105,7 @@ export default function DentistModule({
     e.preventDefault();
     if (!(await requireActiveAccount())) return;
     localStorage.setItem(`dentist_limit_${user?.id || 2}`, maxDailyPatients);
+    await recordActivity(user, { action: `Updated daily patient limit to ${maxDailyPatients}`, entityType: 'dentist_settings', entityId: user?.id });
     setLimitSavedMsg('Daily patient capacity limit updated successfully!');
     setTimeout(() => setLimitSavedMsg(''), 4000);
   };
@@ -120,6 +122,11 @@ export default function DentistModule({
     };
     setAvailabilityMap(updated);
     localStorage.setItem(`dentist_availability_${user?.id || 2}`, JSON.stringify(updated));
+    await recordActivity(user, {
+      action: `Updated availability for ${selectedDateKey}`,
+      entityType: 'availability', entityId: selectedDateKey,
+      details: { time_in: timeInInput, time_out: timeOutInput }
+    });
     setScheduleMsg(`Availability saved for ${selectedDateKey} (${timeInInput} - ${timeOutInput})!`);
     setTimeout(() => setScheduleMsg(''), 4000);
   };
@@ -147,6 +154,11 @@ export default function DentistModule({
     setAvailabilityMap(updated);
     localStorage.setItem(`dentist_availability_${user?.id || 2}`, JSON.stringify(updated));
     const dayNames = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+    await recordActivity(user, {
+      action: `Applied availability to ${dayNames[targetDayOfWeek]}s in ${MONTHS[calendarMonth]}`,
+      entityType: 'availability',
+      details: { time_in: timeInInput, time_out: timeOutInput, dates_updated: count }
+    });
     setScheduleMsg(`Applied ${timeInInput} - ${timeOutInput} to all ${dayNames[targetDayOfWeek]}s in ${MONTHS[calendarMonth]} (${count} days updated)!`);
     setTimeout(() => setScheduleMsg(''), 4000);
   };
@@ -157,6 +169,7 @@ export default function DentistModule({
     delete updated[dateStr];
     setAvailabilityMap(updated);
     localStorage.setItem(`dentist_availability_${user?.id || 2}`, JSON.stringify(updated));
+    await recordActivity(user, { action: `Removed availability for ${dateStr}`, entityType: 'availability', entityId: dateStr });
   };
 
   const handleClockIn = async () => {
@@ -166,15 +179,18 @@ export default function DentistModule({
     const newLog = { ...attendanceLog, timeIn: nowTime };
     setAttendanceLog(newLog);
     localStorage.setItem(`dentist_attendance_${user?.id || 2}_${todayKey}`, JSON.stringify(newLog));
+    await recordActivity(user, { action: 'Clocked in', entityType: 'attendance', entityId: `${user?.id || 2}-${todayKey}` });
   };
 
   const handleClockOut = async () => {
     if (!(await requireActiveAccount())) return;
+    if (!(await dialog.confirm('Are you sure you want to record your time-out?', { title: 'Confirm time-out', confirmText: 'Time-Out' }))) return;
     const nowTime = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: true });
     const todayKey = new Date().toISOString().split('T')[0];
     const newLog = { ...attendanceLog, timeOut: nowTime };
     setAttendanceLog(newLog);
     localStorage.setItem(`dentist_attendance_${user?.id || 2}_${todayKey}`, JSON.stringify(newLog));
+    await recordActivity(user, { action: 'Clocked out', entityType: 'attendance', entityId: `${user?.id || 2}-${todayKey}` });
   };
 
   // Fetch practitioner profile and PSGC data from Supabase on mount
@@ -295,6 +311,7 @@ export default function DentistModule({
       if (error) {
         dialog.alert('Failed to update profile: ' + error.message, { title: 'Profile not saved', variant: 'error' });
       } else {
+        await recordActivity(user, { action: 'Updated dentist profile', entityType: 'staff_user', entityId: targetId });
         setProfileSuccess('Profile updated and synchronized with database!');
         setIsEditingProfile(false);
       }
@@ -744,6 +761,7 @@ export default function DentistModule({
           record={treatmentRecords[String(recordTarget.id)]}
           canEdit
           issuedBy={user?.name}
+          activityUser={user}
           onClose={() => setRecordTarget(null)}
           onSaved={refreshRecords}
         />
@@ -779,6 +797,7 @@ export default function DentistModule({
             readOnlyReason={chartPatient && !chartPatientInChair ? 'This patient is not in treatment right now, so the chart is read-only. The dental assistant must send the patient to the chair (status "In Treatment") before you can change any tooth.' : ''}
             beforeSave={verifyPatientInChair}
             editorName={user?.name}
+            activityUser={user}
           />
         </div>
       )}

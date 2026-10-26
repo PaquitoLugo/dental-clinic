@@ -1,6 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { supabase } from '../lib/supabase';
 import { dialog } from '../components/DialogHost';
+import { recordActivity } from '../lib/activityLog';
+import ManagerActivityLogs from './ManagerActivityLogs';
 
 const startOfWeek = (date) => {
   const start = new Date(date.getFullYear(), date.getMonth(), date.getDate());
@@ -45,7 +47,7 @@ const appointmentStatusColor = (status) => {
   }
 };
 
-export default function ManagerModule({ services, addService, updateService, deleteService, appointments, currentView }) {
+export default function ManagerModule({ services, addService, updateService, deleteService, appointments, currentView, user }) {
   // User Management State
   const [staffUsers, setStaffUsers] = useState([]);
   const [loadingStaff, setLoadingStaff] = useState(false);
@@ -169,6 +171,12 @@ export default function ManagerModule({ services, addService, updateService, del
               price: parseFloat(price),
               service_description: serviceDescription.trim() || null
             });
+            await recordActivity(user, {
+              action: `Updated service: ${finalServiceName}`,
+              entityType: 'service',
+              entityId: formEditingId,
+              details: { category: selectedCategory, price: parseFloat(price), duration_mins: parseInt(duration) }
+            });
           }
           handleCancelFormEdit();
           setModalConfig({ isOpen: false, title: '', message: '', onConfirm: null });
@@ -176,13 +184,19 @@ export default function ManagerModule({ services, addService, updateService, del
       });
     } else {
       try {
-        await addService({
+        const created = await addService({
           service_name: finalServiceName,
           category: selectedCategory,
           duration_mins: parseInt(duration),
           price: parseFloat(price),
           service_description: serviceDescription.trim() || null,
           is_active: true
+        });
+        await recordActivity(user, {
+          action: `Added service: ${finalServiceName}`,
+          entityType: 'service',
+          entityId: created?.id,
+          details: { category: selectedCategory, price: parseFloat(price), duration_mins: parseInt(duration) }
         });
         handleCancelFormEdit();
       } catch (err) {
@@ -192,6 +206,7 @@ export default function ManagerModule({ services, addService, updateService, del
   };
 
   const confirmDelete = (id) => {
+    const service = services.find(item => item.id === id);
     setModalConfig({
       isOpen: true,
       title: "Remove Service",
@@ -199,6 +214,7 @@ export default function ManagerModule({ services, addService, updateService, del
       onConfirm: async () => {
         if (deleteService) {
           await deleteService(id);
+          await recordActivity(user, { action: `Deactivated service: ${service?.service_name || id}`, entityType: 'service', entityId: id });
           if (formEditingId === id) handleCancelFormEdit();
         }
         setModalConfig({ isOpen: false, title: '', message: '', onConfirm: null });
@@ -244,6 +260,10 @@ export default function ManagerModule({ services, addService, updateService, del
       .from('staff_users')
       .update({ account_status: decision, verified_at: new Date().toISOString(), rejection_reason: reason || null })
       .eq('id', account.id);
+    if (!error) await recordActivity(user, {
+      action: `${decision === 'Approved' ? 'Approved' : 'Rejected'} patient account: ${account.full_name}`,
+      entityType: 'staff_user', entityId: account.id
+    });
     setUserMsg(error ? `Could not update account: ${error.message}` : `${account.full_name}'s account was ${decision === 'Approved' ? 'accepted' : 'rejected'}.`);
     fetchStaffUsers();
   };
@@ -276,6 +296,12 @@ export default function ManagerModule({ services, addService, updateService, del
 
       if (error) throw error;
 
+      await recordActivity(user, {
+        action: `${editingStaff ? 'Updated' : 'Created'} ${account.role} account: ${account.full_name}`,
+        entityType: 'staff_user', entityId: editingStaff?.id,
+        details: { role: account.role }
+      });
+
       setUserMsg(editingStaff ? 'Staff account updated successfully.' : 'Staff account created successfully.');
       setEditingStaff(null);
       resetStaffForm();
@@ -299,6 +325,10 @@ export default function ManagerModule({ services, addService, updateService, del
     const { error } = await supabase.from('staff_users')
       .update({ archived_at: archived ? new Date().toISOString() : null })
       .eq('id', account.id);
+    if (!error) await recordActivity(user, {
+      action: `${archived ? 'Archived' : 'Restored'} staff account: ${account.full_name}`,
+      entityType: 'staff_user', entityId: account.id
+    });
     setUserMsg(error ? `Could not ${archived ? 'archive' : 'restore'} account: ${error.message}` : `${account.full_name}'s account was ${archived ? 'archived' : 'restored'}.`);
     fetchStaffUsers();
   };
@@ -425,12 +455,14 @@ export default function ManagerModule({ services, addService, updateService, del
             <div className="bg-white border border-[#d4e2dc] rounded-2xl p-5"><p className="text-sm text-[#71827c]">In queue now</p><h3 className="text-3xl font-black text-[#164e43] mt-2">{appointments.filter(a => a.appointment_date === todayKey && a.status === 'In Queue').length}</h3></div>
           </div>
           <div className="grid grid-cols-1 xl:grid-cols-[1.4fr_1fr] gap-4">
-            <section className="bg-white border border-[#d4e2dc] rounded-2xl p-5 min-h-[300px]"><h3 className="font-black text-xl mb-5">Revenue trend</h3><div className="h-56 flex items-end justify-around gap-2 border-b border-[#e5ece8]">{chartDays.map((day, i) => <div key={dateKey(day)} className="h-full flex-1 flex flex-col justify-end items-center gap-2 min-w-0"><div title={`₱${chartValues[i].toLocaleString('en-PH')}`} className={`w-full max-w-14 rounded-t-lg border border-[#407368] ${dateKey(day) === todayKey ? 'bg-[#164e43]' : 'bg-[#e2eee9]'}`} style={{ height: `${chartValues[i] ? Math.max((chartValues[i] / chartMax) * 80, 8) : 0}%` }} /><span className="text-xs text-[#71827c]">{dashboardPeriod === 'today' ? 'Today' : dashboardPeriod === 'month' ? day.getDate() : day.toLocaleDateString('en-US', { weekday: 'short' })}</span></div>)}</div></section>
+            <section className="bg-white border border-[#d4e2dc] rounded-2xl p-5 min-h-[300px]"><h3 className="font-black text-xl mb-5">Revenue trend</h3><div className="h-56 flex items-end justify-around gap-2 border-b border-[#e5ece8]">{chartDays.map((day, i) => <div key={dateKey(day)} className="h-full flex-1 flex flex-col justify-end items-center gap-2 min-w-0"><span className="text-[9px] leading-none font-semibold text-[#607368] whitespace-nowrap" title={`₱${chartValues[i].toLocaleString('en-PH')}`}>₱{new Intl.NumberFormat('en-PH', { notation: 'compact', maximumFractionDigits: 1 }).format(chartValues[i])}</span><div title={`₱${chartValues[i].toLocaleString('en-PH')}`} className={`w-full max-w-14 rounded-t-lg border border-[#407368] ${dateKey(day) === todayKey ? 'bg-[#164e43]' : 'bg-[#e2eee9]'}`} style={{ height: `${chartValues[i] ? Math.max((chartValues[i] / chartMax) * 68, 8) : 0}%` }} /><span className="text-xs text-[#71827c]">{dashboardPeriod === 'today' ? 'Today' : dashboardPeriod === 'month' ? day.getDate() : day.toLocaleDateString('en-US', { weekday: 'short' })}</span></div>)}</div></section>
             <section className="bg-white border border-[#d4e2dc] rounded-2xl p-5"><h3 className="font-black text-xl mb-4">Today’s schedule</h3><div className="divide-y divide-[#dce6e2]">{todaySchedule.length ? todaySchedule.map(a => <div key={a.id} className="py-3 flex items-center gap-3"><span className="text-sm text-[#71827c] w-14 shrink-0">{formatTime(a.appointment_time)}</span><div className="min-w-0 flex-1"><p className="font-bold truncate">{a.patient_name || 'Patient'}</p><p className="text-sm text-[#71827c] truncate">{a.service_name || 'Appointment'}{a.assigned_dentist ? ` · Dr. ${a.assigned_dentist}` : ''}</p></div><span className={`px-2.5 py-1 rounded-md text-[11px] font-bold ${appointmentBadgeStyle[a.status] || 'bg-gray-100 text-gray-700'}`}>{a.status}</span></div>) : <p className="py-8 text-sm text-[#71827c]">No appointments scheduled today.</p>}</div></section>
           </div>
           <section className="bg-white border border-[#d4e2dc] rounded-2xl p-5"><h3 className="font-black text-xl mb-4">Top services</h3>{topServices.length ? <div className="space-y-3">{topServices.map(([name, count]) => <div key={name} className="grid grid-cols-[minmax(120px,180px)_1fr_24px] items-center gap-3"><span className="truncate text-sm">{name}</span><div className="h-3 rounded-full bg-[#e2eee9] overflow-hidden"><div className="h-full rounded-full bg-[#164e43]" style={{ width: `${(count / topServices[0][1]) * 100}%` }} /></div><span className="text-sm font-bold">{count}</span></div>)}</div> : <p className="text-sm text-[#71827c]">No appointments in this period.</p>}</section>
         </div>
       )}
+
+      {currentView === 'activity' && <ManagerActivityLogs />}
 
       {currentView === 'calendar' && (
         <section className="h-full min-h-0 flex flex-col gap-4 overflow-hidden p-2" aria-label="Master appointment calendar">
