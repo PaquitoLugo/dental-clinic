@@ -6,11 +6,20 @@ import RegisterModal from '../components/RegisterModal';
 export default function Login({ onLogin }) {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
-  const [showPassword, setShowPassword] = useState(false); // State to toggle visibility
+  const [showPassword, setShowPassword] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
   const [successMsg, setSuccessMsg] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [isRegisterOpen, setIsRegisterOpen] = useState(false);
+
+  // Forgot Password State
+  const [isForgotOpen, setIsForgotOpen] = useState(false);
+  const [forgotUsername, setForgotUsername] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [forgotError, setForgotError] = useState('');
+  const [forgotSuccess, setForgotSuccess] = useState('');
+  const [isResetting, setIsResetting] = useState(false);
 
   const handleLoginSubmit = async (e) => {
     e.preventDefault();
@@ -60,6 +69,66 @@ export default function Login({ onLogin }) {
     }
   };
 
+  const handleForgotPasswordSubmit = async (e) => {
+    e.preventDefault();
+    setForgotError('');
+    setForgotSuccess('');
+
+    if (newPassword !== confirmPassword) {
+      setForgotError('Passwords do not match.');
+      return;
+    }
+
+    if (newPassword.length < 6) {
+      setForgotError('Password must be at least 6 characters long.');
+      return;
+    }
+
+    setIsResetting(true);
+
+    try {
+      // Check if user exists
+      const { data, error } = await supabase
+        .from('staff_users')
+        .select('id')
+        .eq('username', forgotUsername.trim().toLowerCase())
+        .maybeSingle();
+
+      if (error || !data) {
+        setForgotError('Username not found. Please check your username.');
+        return;
+      }
+
+      // Hash the new password before saving
+      const hashedPassword = await bcrypt.hash(newPassword.trim(), 6);
+
+      // Update password in Supabase
+      const { error: updateError } = await supabase
+        .from('staff_users')
+        .update({ password: hashedPassword })
+        .eq('id', data.id);
+
+      if (updateError) {
+        setForgotError('Failed to reset password. Please try again.');
+      } else {
+        setForgotSuccess('Password updated successfully! You can now sign in.');
+        setTimeout(() => {
+          setIsForgotOpen(false);
+          setUsername(forgotUsername);
+          setPassword('');
+          setForgotSuccess('');
+          setForgotUsername('');
+          setNewPassword('');
+          setConfirmPassword('');
+        }, 2000);
+      }
+    } catch (err) {
+      setForgotError('An unexpected error occurred.');
+    } finally {
+      setIsResetting(false);
+    }
+  };
+
   const handleRegistrationSuccess = (newUsername) => {
     setUsername(newUsername);
     setPassword('');
@@ -106,7 +175,21 @@ export default function Login({ onLogin }) {
           </div>
 
           <div>
-            <label className="block text-xs font-bold text-[#607368] mb-2 uppercase tracking-wider">Password</label>
+            <div className="flex justify-between items-center mb-2">
+              <label className="block text-xs font-bold text-[#607368] uppercase tracking-wider">Password</label>
+              <button
+                type="button"
+                onClick={() => {
+                  setForgotError('');
+                  setForgotSuccess('');
+                  setForgotUsername(username);
+                  setIsForgotOpen(true);
+                }}
+                className="text-xs font-bold text-[#164e43] hover:underline cursor-pointer"
+              >
+                Forgot password?
+              </button>
+            </div>
             <div className="relative">
               <input
                 type={showPassword ? 'text' : 'password'}
@@ -123,12 +206,10 @@ export default function Login({ onLogin }) {
                 aria-label={showPassword ? "Hide password" : "Show password"}
               >
                 {showPassword ? (
-                  /* Eye Slash (Hide) Icon */
                   <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.8} stroke="currentColor" className="w-5 h-5">
                     <path strokeLinecap="round" strokeLinejoin="round" d="M3.98 8.223A10.477 10.477 0 001.934 12C3.226 16.338 7.244 19.5 12 19.5c.993 0 1.953-.138 2.863-.395M6.228 6.228A10.45 10.45 0 0112 4.5c4.756 0 8.773 3.162 10.065 7.498a10.523 10.523 0 01-4.293 5.774M6.228 6.228L3 3m3.228 3.228l3.65 3.65m7.894 7.894L21 21m-3.228-3.228l-3.65-3.65m0 0a3 3 0 10-4.243-4.243m4.242 4.242L9.88 9.88" />
                   </svg>
                 ) : (
-                  /* Eye (Show) Icon */
                   <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.8} stroke="currentColor" className="w-5 h-5">
                     <path strokeLinecap="round" strokeLinejoin="round" d="M2.036 12c1.349-4.39 5.385-7.5 9.964-7.5s8.615 3.11 9.964 7.5c-1.349 4.39-5.385 7.5-9.964 7.5s-8.615-3.11-9.964-7.5z" />
                     <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
@@ -160,6 +241,90 @@ export default function Login({ onLogin }) {
         </div>
 
       </div>
+
+      {/* Forgot Password Modal */}
+      {isForgotOpen && (
+        <div className="fixed inset-0 bg-black/40 backdrop-blur-xs flex items-center justify-center p-4 z-50">
+          <div className="bg-white border border-[#d4e2dc] rounded-3xl p-8 w-[420px] shadow-xl relative">
+            <button
+              onClick={() => setIsForgotOpen(false)}
+              className="absolute right-6 top-6 text-[#607368] hover:text-[#13241b] text-xl font-bold cursor-pointer"
+            >
+              ✕
+            </button>
+
+            <h3 className="text-xl font-black text-[#13241b] mb-1">Reset Password</h3>
+            <p className="text-xs text-[#607368] mb-6 font-medium">Enter your username and your new password.</p>
+
+            {forgotError && (
+              <div className="bg-red-50 border border-red-200 text-red-700 text-xs p-3 rounded-xl mb-4 font-medium">
+                ⚠️ {forgotError}
+              </div>
+            )}
+
+            {forgotSuccess && (
+              <div className="bg-green-50 border border-green-200 text-green-700 text-xs p-3 rounded-xl mb-4 font-medium">
+                ✓ {forgotSuccess}
+              </div>
+            )}
+
+            <form onSubmit={handleForgotPasswordSubmit} className="space-y-4">
+              <div>
+                <label className="block text-xs font-bold text-[#607368] mb-1 uppercase tracking-wider">Username</label>
+                <input
+                  type="text"
+                  required
+                  placeholder="Enter your username"
+                  value={forgotUsername}
+                  onChange={e => setForgotUsername(e.target.value)}
+                  className="w-full border border-[#d4e2dc] rounded-2xl p-3 text-sm bg-[#f5f7f6] focus:outline-none focus:border-[#164e43]"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-[#607368] mb-1 uppercase tracking-wider">New Password</label>
+                <input
+                  type="password"
+                  required
+                  placeholder="••••••••"
+                  value={newPassword}
+                  onChange={e => setNewPassword(e.target.value)}
+                  className="w-full border border-[#d4e2dc] rounded-2xl p-3 text-sm bg-[#f5f7f6] focus:outline-none focus:border-[#164e43]"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-[#607368] mb-1 uppercase tracking-wider">Confirm New Password</label>
+                <input
+                  type="password"
+                  required
+                  placeholder="••••••••"
+                  value={confirmPassword}
+                  onChange={e => setConfirmPassword(e.target.value)}
+                  className="w-full border border-[#d4e2dc] rounded-2xl p-3 text-sm bg-[#f5f7f6] focus:outline-none focus:border-[#164e43]"
+                />
+              </div>
+
+              <div className="flex gap-3 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setIsForgotOpen(false)}
+                  className="w-1/2 bg-[#f5f7f6] hover:bg-[#e3ede6] text-[#607368] font-bold py-3 rounded-2xl text-xs transition cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={isResetting}
+                  className="w-1/2 bg-[#164e43] hover:bg-[#0f362e] text-white font-bold py-3 rounded-2xl text-xs transition cursor-pointer"
+                >
+                  {isResetting ? 'Saving...' : 'Reset Password'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
 
       {/* Full Patient Registration Modal */}
       <RegisterModal
