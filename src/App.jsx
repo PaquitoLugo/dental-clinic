@@ -9,6 +9,22 @@ import PatientPortal from './views/patientPortal';
 import DialogHost, { dialog } from './components/DialogHost';
 import useSessionGuard from './data/useSessionGuard';
 
+const urlParams = new URLSearchParams(window.location.search);
+const resetToken = urlParams.get('resetToken');
+
+if (resetToken) {
+  return (
+    <ResetPassword 
+      token={resetToken} 
+      onComplete={() => {
+        // Clear query string from URL without refreshing
+        window.history.replaceState({}, document.title, window.location.pathname);
+        window.location.reload();
+      }} 
+    />
+  );
+}
+
 function MainWorkspace({ authenticatedUser, handleLogout }) {
   const contextData = useContext(ClinicContext);
   

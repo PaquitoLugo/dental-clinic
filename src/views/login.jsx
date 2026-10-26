@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import bcrypt from 'bcryptjs';
+import emailjs from '@emailjs/browser'; // Make sure to npm install @emailjs/browser
 import { supabase } from '../lib/supabase';
 import RegisterModal from '../components/RegisterModal';
 
@@ -12,15 +13,14 @@ export default function Login({ onLogin }) {
   const [isLoading, setIsLoading] = useState(false);
   const [isRegisterOpen, setIsRegisterOpen] = useState(false);
 
-  // Forgot Password State
+  // Forgot Password Modal State
   const [isForgotOpen, setIsForgotOpen] = useState(false);
-  const [forgotUsername, setForgotUsername] = useState('');
-  const [newPassword, setNewPassword] = useState('');
-  const [confirmPassword, setConfirmPassword] = useState('');
+  const [resetEmail, setResetEmail] = useState('');
   const [forgotError, setForgotError] = useState('');
   const [forgotSuccess, setForgotSuccess] = useState('');
   const [isResetting, setIsResetting] = useState(false);
 
+  // 1. LOGIN HANDLER
   const handleLoginSubmit = async (e) => {
     e.preventDefault();
     setErrorMsg('');
@@ -28,20 +28,17 @@ export default function Login({ onLogin }) {
     setIsLoading(true);
 
     try {
-      // 1. Fetch the account by username only
       const { data, error } = await supabase
         .from('staff_users')
         .select('*')
         .eq('username', username.trim().toLowerCase())
         .maybeSingle();
 
-      // If user doesn't exist or query failed
       if (error || !data) {
         setErrorMsg('Invalid username or password. Please check your credentials.');
         return;
       }
 
-      // 2. Compare the entered password with the stored hash
       const isPasswordValid = await bcrypt.compare(password.trim(), data.password);
 
       if (!isPasswordValid) {
@@ -49,7 +46,6 @@ export default function Login({ onLogin }) {
         return;
       }
 
-      // 3. Handle account status checks
       if (data.archived_at) {
         setErrorMsg('This account is archived. Please contact the clinic manager for assistance.');
       } else {
@@ -69,61 +65,66 @@ export default function Login({ onLogin }) {
     }
   };
 
-  const handleForgotPasswordSubmit = async (e) => {
+  // 2. FORGOT PASSWORD HANDLER (Sends reset token link to user email)
+  const handleSendResetLink = async (e) => {
     e.preventDefault();
     setForgotError('');
     setForgotSuccess('');
-
-    if (newPassword !== confirmPassword) {
-      setForgotError('Passwords do not match.');
-      return;
-    }
-
-    if (newPassword.length < 6) {
-      setForgotError('Password must be at least 6 characters long.');
-      return;
-    }
-
     setIsResetting(true);
 
     try {
-      // Check if user exists
-      const { data, error } = await supabase
+      const inputVal = resetEmail.trim().toLowerCase();
+
+      // Find user by email or username
+      const { data: user, error } = await supabase
         .from('staff_users')
-        .select('id')
-        .eq('username', forgotUsername.trim().toLowerCase())
+        .select('id, email, username, full_name')
+        .or(`email.eq.${inputVal},username.eq.${inputVal}`)
         .maybeSingle();
 
-      if (error || !data) {
-        setForgotError('Username not found. Please check your username.');
+      if (error || !user || !user.email) {
+        setForgotError('No account found with that username or email.');
         return;
       }
 
-      // Hash the new password before saving
-      const hashedPassword = await bcrypt.hash(newPassword.trim(), 6);
+      // Generate token and 15-minute expiration timestamp
+      const resetToken = crypto.randomUUID();
+      const expiresAt = new Date(Date.now() + 15 * 60 * 1000).toISOString();
 
-      // Update password in Supabase
+      // Save token to Supabase
       const { error: updateError } = await supabase
         .from('staff_users')
-        .update({ password: hashedPassword })
-        .eq('id', data.id);
+        .update({
+          reset_token: resetToken,
+          reset_token_expires_at: expiresAt
+        })
+        .eq('id', user.id);
 
-      if (updateError) {
-        setForgotError('Failed to reset password. Please try again.');
-      } else {
-        setForgotSuccess('Password updated successfully! You can now sign in.');
-        setTimeout(() => {
-          setIsForgotOpen(false);
-          setUsername(forgotUsername);
-          setPassword('');
-          setForgotSuccess('');
-          setForgotUsername('');
-          setNewPassword('');
-          setConfirmPassword('');
-        }, 2000);
-      }
+      if (updateError) throw updateError;
+
+      // Construct Reset Link
+      const resetLink = `${window.location.origin}?resetToken=${resetToken}`;
+
+      // Send Email via EmailJS
+      await emailjs.send(
+        'YOUR_SERVICE_ID',   // Replace with EmailJS Service ID
+        'YOUR_TEMPLATE_ID',  // Replace with EmailJS Template ID
+        {
+          to_email: user.email,
+          to_name: user.full_name || user.username,
+          reset_link: resetLink,
+        },
+        'YOUR_PUBLIC_KEY'    // Replace with EmailJS Public Key
+      );
+
+      setForgotSuccess(`Reset link sent to ${user.email}! Please check your inbox.`);
+      setTimeout(() => {
+        setIsForgotOpen(false);
+        setResetEmail('');
+        setForgotSuccess('');
+      }, 4000);
     } catch (err) {
-      setForgotError('An unexpected error occurred.');
+      setForgotError('Failed to send reset email. Please try again.');
     } finally {
       setIsResetting(false);
     }
@@ -182,7 +183,6 @@ export default function Login({ onLogin }) {
                 onClick={() => {
                   setForgotError('');
                   setForgotSuccess('');
-                  setForgotUsername(username);
                   setIsForgotOpen(true);
                 }}
                 className="text-xs font-bold text-[#164e43] hover:underline cursor-pointer"
@@ -254,7 +254,9 @@ export default function Login({ onLogin }) {
             </button>
 
             <h3 className="text-xl font-black text-[#13241b] mb-1">Reset Password</h3>
-            <p className="text-xs text-[#607368] mb-6 font-medium">Enter your username and your new password.</p>
+            <p className="text-xs text-[#607368] mb-6 font-medium">
+              Enter your email address or username. We will send a link to reset your password.
+            </p>
 
             {forgotError && (
               <div className="bg-red-50 border border-red-200 text-red-700 text-xs p-3 rounded-xl mb-4 font-medium">
@@ -268,39 +270,15 @@ export default function Login({ onLogin }) {
               </div>
             )}
 
-            <form onSubmit={handleForgotPasswordSubmit} className="space-y-4">
+            <form onSubmit={handleSendResetLink} className="space-y-4">
               <div>
-                <label className="block text-xs font-bold text-[#607368] mb-1 uppercase tracking-wider">Username</label>
+                <label className="block text-xs font-bold text-[#607368] mb-1 uppercase tracking-wider">Email or Username</label>
                 <input
                   type="text"
                   required
-                  placeholder="Enter your username"
-                  value={forgotUsername}
-                  onChange={e => setForgotUsername(e.target.value)}
-                  className="w-full border border-[#d4e2dc] rounded-2xl p-3 text-sm bg-[#f5f7f6] focus:outline-none focus:border-[#164e43]"
-                />
-              </div>
-
-              <div>
-                <label className="block text-xs font-bold text-[#607368] mb-1 uppercase tracking-wider">New Password</label>
-                <input
-                  type="password"
-                  required
-                  placeholder="••••••••"
-                  value={newPassword}
-                  onChange={e => setNewPassword(e.target.value)}
-                  className="w-full border border-[#d4e2dc] rounded-2xl p-3 text-sm bg-[#f5f7f6] focus:outline-none focus:border-[#164e43]"
-                />
-              </div>
-
-              <div>
-                <label className="block text-xs font-bold text-[#607368] mb-1 uppercase tracking-wider">Confirm New Password</label>
-                <input
-                  type="password"
-                  required
-                  placeholder="••••••••"
-                  value={confirmPassword}
-                  onChange={e => setConfirmPassword(e.target.value)}
+                  placeholder="name@example.com or username"
+                  value={resetEmail}
+                  onChange={e => setResetEmail(e.target.value)}
                   className="w-full border border-[#d4e2dc] rounded-2xl p-3 text-sm bg-[#f5f7f6] focus:outline-none focus:border-[#164e43]"
                 />
               </div>
@@ -318,7 +296,7 @@ export default function Login({ onLogin }) {
                   disabled={isResetting}
                   className="w-1/2 bg-[#164e43] hover:bg-[#0f362e] text-white font-bold py-3 rounded-2xl text-xs transition cursor-pointer"
                 >
-                  {isResetting ? 'Saving...' : 'Reset Password'}
+                  {isResetting ? 'Sending Link...' : 'Send Reset Link'}
                 </button>
               </div>
             </form>
