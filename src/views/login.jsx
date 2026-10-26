@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import bcrypt from 'bcryptjs';
-import emailjs from '@emailjs/browser'; // Make sure to npm install @emailjs/browser
+import emailjs from '@emailjs/browser';
 import { supabase } from '../lib/supabase';
 import RegisterModal from '../components/RegisterModal';
 
@@ -83,7 +83,7 @@ export default function Login({ onLogin }) {
         .maybeSingle();
 
       if (error || !user || !user.email) {
-        setForgotError('No account found with that username or email.');
+        setForgotError('No account found with that username or email, or no email address is attached to this account.');
         return;
       }
 
@@ -106,17 +106,18 @@ export default function Login({ onLogin }) {
       const resetLink = `${window.location.origin}?resetToken=${resetToken}`;
 
       // Send Email via EmailJS
-      await emailjs.send(
-        'service_0cds2eo',   // Replace with EmailJS Service ID
-        'template_5svch7f',  // Replace with EmailJS Template ID
+      const response = await emailjs.send(
+        'service_0cds2eo',
+        'template_5svch7f',
         {
           to_email: user.email,
           to_name: user.full_name || user.username,
           reset_link: resetLink,
         },
-        'zuGkiLgb_lQ8-D6fJ'    // Replace with EmailJS Public Key
+        'zuGkiLgb_lQ8-D6fJ'
       );
 
+      console.log('EMAILJS SUCCESS:', response.status, response.text);
       setForgotSuccess(`Reset link sent to ${user.email}! Please check your inbox.`);
       setTimeout(() => {
         setIsForgotOpen(false);
@@ -124,7 +125,10 @@ export default function Login({ onLogin }) {
         setForgotSuccess('');
       }, 4000);
     } catch (err) {
-      setForgotError('Failed to send reset email. Please try again.');
+      console.error('EMAILJS ERROR DETAILS:', err);
+      // Displays the specific EmailJS error (e.g., "The recipient email address is required")
+      const detail = err?.text || err?.message || 'Check browser console for details.';
+      setForgotError(`Failed to send email: ${detail}`);
     } finally {
       setIsResetting(false);
     }
