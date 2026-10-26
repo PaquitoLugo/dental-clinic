@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { supabase } from './supabase';
+import { supabase } from '../lib/supabase';
 import { belongsToPatient } from './patientMatch';
 
 /** Returns contactFor(appointment): the number saved on the appointment, else the patient account's mobile number. */

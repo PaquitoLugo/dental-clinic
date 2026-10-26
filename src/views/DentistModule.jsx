@@ -5,9 +5,9 @@ import PhAddressSelect from '../components/PhAddressSelect';
 import ToothChart from '../components/ToothChart';
 import TreatmentRecordModal from '../components/TreatmentRecordModal';
 import useTreatmentRecords from '../lib/useTreatmentRecords';
-import usePatientContacts from '../lib/usePatientContacts';
-import { belongsToPatient } from '../lib/patientMatch';
-import { isAccountActive } from '../lib/useSessionGuard';
+import usePatientContacts from '../data/usePatientContacts';
+import { belongsToPatient } from '../data/patientMatch';
+import { isAccountActive } from '../data/useSessionGuard';
 
 // "23:38:00" / "13:00" -> "11:38 PM" / "1:00 PM"
 const formatApptTime = (t) => {

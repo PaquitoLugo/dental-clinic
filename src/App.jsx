@@ -7,7 +7,7 @@ import ManagerModule from './views/ManagerModule';
 import Login from './views/login';
 import PatientPortal from './views/patientPortal';
 import DialogHost, { dialog } from './components/DialogHost';
-import useSessionGuard from './lib/useSessionGuard';
+import useSessionGuard from './data/useSessionGuard';
 
 function MainWorkspace({ authenticatedUser, handleLogout }) {
   const contextData = useContext(ClinicContext);

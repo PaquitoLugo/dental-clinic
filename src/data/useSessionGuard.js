@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react';
-import { supabase } from './supabase';
+import { supabase } from '../lib/supabase';
 
 /** True when the account still exists, is not archived and is approved. Network errors count as active. */
 export async function isAccountActive(userId) {

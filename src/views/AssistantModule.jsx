@@ -3,7 +3,7 @@ import { supabase } from '../lib/supabase';
 import { dialog } from '../components/DialogHost';
 import TreatmentRecordModal from '../components/TreatmentRecordModal';
 import useTreatmentRecords from '../lib/useTreatmentRecords';
-import usePatientContacts from '../lib/usePatientContacts';
+import usePatientContacts from '../data/usePatientContacts';
 
 // Appointment lifecycle handled by the dental assistant:
 //   Pending -> Accepted (or Rejected) -> In Queue -> In Treatment -> Completed

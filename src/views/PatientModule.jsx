@@ -4,7 +4,7 @@ import AppointmentRegistrationWizard from './AppointmentRegistrationWizard';
 import ToothChart from '../components/ToothChart';
 import TreatmentRecordModal from '../components/TreatmentRecordModal';
 import useTreatmentRecords from '../lib/useTreatmentRecords';
-import { belongsToPatient } from '../lib/patientMatch';
+import { belongsToPatient } from '../data/patientMatch';
 
 export default function PatientModule({ services, dentists, createAppointment, appointments, user, currentView, onViewChange }) {
   const [patientName, setPatientName] = useState('');
