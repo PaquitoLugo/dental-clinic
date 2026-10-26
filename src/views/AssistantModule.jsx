@@ -49,7 +49,7 @@ export default function AssistantModule({ appointments = [], updateAppointmentSt
   const [fetchedDentists, setFetchedDentists] = useState([]);
   const [dentistLimits, setDentistLimits] = useState({});
   const { records, refresh: refreshRecords } = useTreatmentRecords();
-  const contactFor = usePatientContacts();
+  const { contactFor, isArchivedPatient } = usePatientContacts();
   const [viewing, setViewing] = useState(null);
   const [archiveGraceClock, setArchiveGraceClock] = useState(INITIAL_ARCHIVE_CLOCK);
   const autoArchiveRunning = useRef(false);
@@ -628,11 +628,13 @@ export default function AssistantModule({ appointments = [], updateAppointmentSt
             {visible.map((a) => {
               const doc = doctorOf(a);
               const open = !['Completed', 'Rejected', 'Cancelled'].includes(a.status);
+              const patientArchived = isArchivedPatient(a);
               return (
-                <tr key={a.id} className="hover:bg-[#f8faf9]">
+                <tr key={a.id} className={patientArchived ? 'bg-gray-100 text-gray-500' : 'hover:bg-[#f8faf9]'}>
                   <td className="py-3 px-3 font-black text-[#164e43] text-sm">{a.queue_number ? `#${a.queue_number}` : '--'}</td>
                   <td className="py-3 px-3">
-                    <div className="font-bold text-[#13241b]">{a.patient_name}</div>
+                    <div className={`font-bold ${patientArchived ? 'text-gray-500' : 'text-[#13241b]'}`}>{a.patient_name}</div>
+                    {patientArchived && <span className="text-[10px] font-bold uppercase tracking-wide text-gray-500">Archived by admin · unavailable</span>}
                     <div className="text-[#607368]">{contactFor(a) || 'N/A'}</div>
                   </td>
                   <td className="py-3 px-3">
@@ -654,7 +656,9 @@ export default function AssistantModule({ appointments = [], updateAppointmentSt
                     {a.status === 'Cancelled' && a.cancellation_reason && <div className="mt-1 text-[10px] text-[#607368]">Reason: {a.cancellation_reason}</div>}
                   </td>
                   <td className="py-3 px-3 text-right space-x-1.5 whitespace-nowrap">
-                    {isArchiveView ? (() => {
+                    {patientArchived
+                      ? <span className="text-[10px] font-semibold text-gray-500">Unavailable</span>
+                      : isArchiveView ? (() => {
                       const restoreDeadline = a.cancelled_at
                         ? new Date(a.cancelled_at).getTime() + NO_SHOW_GRACE_MINUTES * 60_000
                         : 0;

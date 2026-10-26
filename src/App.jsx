@@ -33,7 +33,7 @@ function MainWorkspace({ authenticatedUser, handleLogout }) {
             </div>
             <div>
               <h1 className="font-black text-sm leading-tight text-[#13241b]">
-                Dental Clinic Portal
+                LumiDent
               </h1>
               <p className="text-[10px] text-[#607368] font-bold uppercase tracking-wider">
                 System Navigation

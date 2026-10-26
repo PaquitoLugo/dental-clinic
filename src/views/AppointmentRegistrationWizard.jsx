@@ -315,7 +315,7 @@ export default function AppointmentRegistrationWizard({
             &#129463;
           </div>
           <div>
-            <h1 className="font-black text-xs sm:text-base tracking-tight text-[#13241b]">DENTAL CARE PORTAL</h1>
+            <h1 className="font-black text-xs sm:text-base tracking-tight text-[#13241b]">LumiDent</h1>
             <p className="text-[8px] sm:text-[10px] font-bold text-[#607368] uppercase tracking-wider">Patient Scheduler & Charting System</p>
           </div>
         </button>

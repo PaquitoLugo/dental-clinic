@@ -61,7 +61,7 @@ export default function Login({ onLogin }) {
           <div className="w-16 h-16 rounded-2xl bg-[#164e43] text-white flex items-center justify-center font-bold text-3xl mx-auto mb-4 shadow-xs">
             🦷
           </div>
-          <h2 className="font-black text-3xl text-[#13241b] tracking-tight">Dental Clinic Portal</h2>
+          <h2 className="font-black text-3xl text-[#13241b] tracking-tight">LumiDent</h2>
           <p className="text-xs font-semibold text-[#607368] mt-2">Sign in to access your workspace portal.</p>
         </div>
 

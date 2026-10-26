@@ -65,7 +65,7 @@ export default function DentistModule({
   // Treatment notes / prescriptions the dentist issues before the assistant can mark a visit as done
   const { records: treatmentRecords, refresh: refreshRecords } = useTreatmentRecords();
   const [recordTarget, setRecordTarget] = useState(null);
-  const contactFor = usePatientContacts();
+  const { contactFor, isArchivedPatient } = usePatientContacts();
 
   // Tooth chart: which patient the dentist is charting
   const [chartPatients, setChartPatients] = useState([]);
@@ -328,8 +328,8 @@ export default function DentistModule({
   // Patients (verified accounts) for the tooth chart
   useEffect(() => {
     if (currentView !== 'toothchart' && currentView !== 'logs') return;
-    supabase.from('staff_users').select('id, full_name, account_status').eq('role', 'patient').order('full_name')
-      .then(({ data }) => setChartPatients((data || []).filter((p) => (p.account_status || 'Approved') === 'Approved')));
+    supabase.from('staff_users').select('id, full_name, account_status, archived_at').eq('role', 'patient').order('full_name')
+      .then(({ data }) => setChartPatients((data || []).filter((p) => !p.archived_at && (p.account_status || 'Approved') === 'Approved')));
   }, [currentView]);
 
   const dentistName = `${firstName} ${middleName ? middleName + ' ' : ''}${lastName}`.trim();
@@ -874,9 +874,14 @@ export default function DentistModule({
               </thead>
               <tbody className="divide-y divide-[#f0f5f2] text-xs">
                 {filteredLogs.length > 0 ? (
-                  filteredLogs.map(a => (
-                    <tr key={a.id} className="hover:bg-[#f8faf9]">
-                      <td className="py-3 px-2 font-bold text-[#13241b]">{a.patient_name}</td>
+                  filteredLogs.map(a => {
+                    const patientArchived = isArchivedPatient(a);
+                    return (
+                    <tr key={a.id} className={patientArchived ? 'bg-gray-100 text-gray-500' : 'hover:bg-[#f8faf9]'}>
+                      <td className={`py-3 px-2 font-bold ${patientArchived ? 'text-gray-500' : 'text-[#13241b]'}`}>
+                        {a.patient_name}
+                        {patientArchived && <span className="ml-2 rounded bg-gray-200 px-2 py-0.5 text-[9px] font-bold uppercase tracking-wide text-gray-600">Archived by admin · unavailable</span>}
+                      </td>
                       <td className="py-3 px-2 text-[#607368]">{contactFor(a) || 'N/A'}</td>
                       <td className="py-3 px-2 font-semibold text-[#164e43]">{a.service_name}</td>
                       <td className="py-3 px-2">{a.appointment_date} @ {formatApptTime(a.appointment_time)}</td>
@@ -888,10 +893,12 @@ export default function DentistModule({
                         </span>
                       </td>
                       <td className="py-3 px-2 text-right whitespace-nowrap space-x-3">
-                        {a.status === 'In Queue' && (
+                        {patientArchived ? (
+                          <span className="text-[11px] font-semibold text-gray-500">Unavailable</span>
+                        ) : a.status === 'In Queue' && (
                           <span className="text-[11px] italic text-gray-400">Notes open once the patient is in treatment</span>
                         )}
-                        {['In Treatment', 'Completed'].includes(a.status) && (
+                        {!patientArchived && ['In Treatment', 'Completed'].includes(a.status) && (
                           <button
                             type="button"
                             onClick={() => setRecordTarget(a)}
@@ -907,20 +914,23 @@ export default function DentistModule({
                             {treatmentRecords[String(a.id)] ? '✓ Notes issued · Edit' : a.status === 'Completed' ? 'Add missing notes' : 'Write notes / prescription'}
                           </button>
                         )}
-                        <button
-                          type="button"
-                          onClick={() => {
-                            const patient = chartPatients.find((p) => belongsToPatient(a, p));
-                            if (patient) setChartPatientId(String(patient.id));
-                            if (onViewChange) onViewChange('toothchart');
-                          }}
-                          className="text-[11px] font-bold text-[#164e43] hover:underline cursor-pointer"
-                        >
-                          View tooth chart
-                        </button>
+                        {!patientArchived && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const patient = chartPatients.find((p) => belongsToPatient(a, p));
+                              if (patient) setChartPatientId(String(patient.id));
+                              if (onViewChange) onViewChange('toothchart');
+                            }}
+                            className="text-[11px] font-bold text-[#164e43] hover:underline cursor-pointer"
+                          >
+                            View tooth chart
+                          </button>
+                        )}
                       </td>
                     </tr>
-                  ))
+                    );
+                  })
                 ) : (
                   <tr>
                     <td colSpan="6" className="py-8 text-center text-gray-400 font-medium">
