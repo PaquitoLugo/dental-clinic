@@ -114,7 +114,7 @@ export default function Login({ onLogin }) {
           to_name: user.full_name || user.username,
           reset_link: resetLink,
         },
-        'YOUR_PUBLIC_KEY'    // Replace with EmailJS Public Key
+        'zuGkiLgb_lQ8-D6fJ'    // Replace with EmailJS Public Key
       );
 
       setForgotSuccess(`Reset link sent to ${user.email}! Please check your inbox.`);
