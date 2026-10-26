@@ -5,7 +5,7 @@ import { supabase } from '../lib/supabase';
 import RegisterModal from '../components/RegisterModal';
 
 export default function Login({ onLogin }) {
-  const [username, setUsername] = useState('');
+  const [username, setUsername] = useState(''); // Serves as Username or Email
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
@@ -20,7 +20,7 @@ export default function Login({ onLogin }) {
   const [forgotSuccess, setForgotSuccess] = useState('');
   const [isResetting, setIsResetting] = useState(false);
 
-  // 1. LOGIN HANDLER
+  // 1. LOGIN HANDLER (Supports both Username and Email)
   const handleLoginSubmit = async (e) => {
     e.preventDefault();
     setErrorMsg('');
@@ -28,21 +28,24 @@ export default function Login({ onLogin }) {
     setIsLoading(true);
 
     try {
+      const inputVal = username.trim().toLowerCase();
+
+      // Fetch account by matching either username OR email
       const { data, error } = await supabase
         .from('staff_users')
         .select('*')
-        .eq('username', username.trim().toLowerCase())
+        .or(`username.eq.${inputVal},email.eq.${inputVal}`)
         .maybeSingle();
 
       if (error || !data) {
-        setErrorMsg('Invalid username or password. Please check your credentials.');
+        setErrorMsg('Invalid username/email or password. Please check your credentials.');
         return;
       }
 
       const isPasswordValid = await bcrypt.compare(password.trim(), data.password);
 
       if (!isPasswordValid) {
-        setErrorMsg('Invalid username or password. Please check your credentials.');
+        setErrorMsg('Invalid username/email or password. Please check your credentials.');
         return;
       }
 
@@ -126,7 +129,6 @@ export default function Login({ onLogin }) {
       }, 4000);
     } catch (err) {
       console.error('EMAILJS ERROR DETAILS:', err);
-      // Displays the specific EmailJS error (e.g., "The recipient email address is required")
       const detail = err?.text || err?.message || 'Check browser console for details.';
       setForgotError(`Failed to send email: ${detail}`);
     } finally {
@@ -168,11 +170,13 @@ export default function Login({ onLogin }) {
         {/* Clean Sign In Form */}
         <form onSubmit={handleLoginSubmit} className="space-y-5">
           <div>
-            <label className="block text-xs font-bold text-[#607368] mb-2 uppercase tracking-wider">Username</label>
+            <label className="block text-xs font-bold text-[#607368] mb-2 uppercase tracking-wider">
+              Username or Email
+            </label>
             <input
               type="text"
               required
-              placeholder="Enter your username"
+              placeholder="Enter your username or email"
               value={username}
               onChange={e => setUsername(e.target.value)}
               className="w-full border border-[#d4e2dc] rounded-2xl p-4 text-sm bg-[#f5f7f6] focus:outline-none focus:border-[#164e43]"
