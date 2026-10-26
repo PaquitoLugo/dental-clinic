@@ -1,18 +1,8 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { supabase } from '../lib/supabase';
 import { dialog } from '../components/DialogHost';
 import AvailabilityDatePicker, { formatTime } from '../components/AvailabilityDatePicker';
-
-// Dentist's availability is saved by DentistModule under this key (dentist user id = 2)
-const DENTIST_ID = 2;
-const loadAvailability = () => {
-  try {
-    const saved = localStorage.getItem(`dentist_availability_${DENTIST_ID}`);
-    return saved ? JSON.parse(saved) : {};
-  } catch {
-    return {};
-  }
-};
+import { fetchDentistAvailability } from '../lib/dentistAvailability';
 
 // "8:00 AM" / "1:00 PM" -> minutes since midnight
 const slotToMinutes = (label) => {
@@ -21,10 +11,6 @@ const slotToMinutes = (label) => {
   let h = Number(m[1]) % 12;
   if (m[3].toUpperCase() === 'PM') h += 12;
   return h * 60 + Number(m[2]);
-};
-const timeToMinutes = (t) => {
-  const [h, m] = t.split(':').map(Number);
-  return h * 60 + m;
 };
 // "8:00 AM \u2013 9:00 AM" -> "08:00" (24h format used by the rest of the system)
 const slotStart24 = (slot) => {
@@ -51,6 +37,7 @@ export default function AppointmentRegistrationWizard({
   const [serviceSearch, setServiceSearch] = useState('');
   const [serviceCategory, setServiceCategory] = useState('All');
   const [servicePage, setServicePage] = useState(1);
+  const [formError, setFormError] = useState('');
   const servicesPerPage = 12;
 
   const [formData, setFormData] = useState({
@@ -71,22 +58,67 @@ export default function AppointmentRegistrationWizard({
     hospitalNumber: '',
     completeAddress: '',
     emergencyContact: '',
+    isGuardianBooking: false,
+    guardianName: '',
+    guardianRelationship: '',
+    guardianContact: '',
     consentUseInfo: false,
     confirmInfoCorrect: false
   });
 
-  const [availabilityMap, setAvailabilityMap] = useState(loadAvailability);
+  const [dentists, setDentists] = useState([]);
+  const [selectedDentistId, setSelectedDentistId] = useState('');
+  const [loadingDentists, setLoadingDentists] = useState(true);
+  const [availabilityMap, setAvailabilityMap] = useState({});
+  const [loadingAvailability, setLoadingAvailability] = useState(false);
+  const selectedDentist = dentists.find((dentist) => String(dentist.id) === selectedDentistId);
+  const dentistName = selectedDentist?.full_name || '';
 
-  // Keep in sync if the dentist updates availability in another tab
   useEffect(() => {
-    const onStorage = (e) => {
-      if (e.key === `dentist_availability_${DENTIST_ID}`) setAvailabilityMap(loadAvailability());
+    let active = true;
+    const loadDentists = async () => {
+      setLoadingDentists(true);
+      const { data, error } = await supabase.from('staff_users')
+        .select('id, full_name')
+        .eq('role', 'dentist')
+        .is('archived_at', null)
+        .order('full_name');
+      if (!active) return;
+      if (error) {
+        setFormError(`Could not load dentists: ${error.message}`);
+      } else {
+        setDentists(data || []);
+        const assignedDentist = (data || []).find((dentist) => dentist.full_name === patient?.assigned_dentist);
+        if (assignedDentist) setSelectedDentistId(String(assignedDentist.id));
+      }
+      setLoadingDentists(false);
     };
-    window.addEventListener('storage', onStorage);
-    return () => window.removeEventListener('storage', onStorage);
-  }, []);
+    loadDentists();
+    return () => { active = false; };
+  }, [patient?.assigned_dentist]);
 
-  const [formError, setFormError] = useState('');
+  useEffect(() => {
+    let active = true;
+    if (!dentistName) {
+      return () => { active = false; };
+    }
+
+    fetchDentistAvailability(dentistName)
+      .then((availability) => {
+        if (active) setAvailabilityMap(availability);
+      })
+      .catch((error) => {
+        if (active) {
+          setAvailabilityMap({});
+          setFormError(`Could not load ${dentistName}'s availability: ${error.message}`);
+        }
+      })
+      .finally(() => {
+        if (active) setLoadingAvailability(false);
+      });
+    return () => { active = false; };
+  }, [dentistName]);
+
   const [submitting, setSubmitting] = useState(false);
 
   const categories = ['All', ...new Set(services.map(service => service.category).filter(Boolean))];
@@ -98,40 +130,18 @@ export default function AppointmentRegistrationWizard({
   const pagedServices = filteredServices.slice((servicePage - 1) * servicesPerPage, servicePage * servicesPerPage);
   const selectedTotal = formData.selectedServices.reduce((total, service) => total + Number(service.price || 0), 0);
 
-  const availableTimeSlots = [
-    '8:00 AM \u2013 9:00 AM',
-    '9:00 AM \u2013 10:00 AM',
-    '10:00 AM \u2013 11:00 AM',
-    '11:00 AM \u2013 12:00 PM',
-    '1:00 PM \u2013 2:00 PM'
-  ];
-
-  // Only offer slots that fall inside the dentist's time-in / time-out for the chosen date
-  const daySchedule = availabilityMap[formData.appointmentDate];
-  const visibleTimeSlots = daySchedule
-    ? availableTimeSlots.filter((slot) => {
-        const [start, end] = slot.split('–').map((s) => slotToMinutes(s));
-        return start !== null && end !== null &&
-          start >= timeToMinutes(daySchedule.timeIn) && end <= timeToMinutes(daySchedule.timeOut);
-      })
-    : availableTimeSlots;
-
-  // The dentist the availability calendar belongs to
-  const [dentistName, setDentistName] = useState('');
-  const [dentistArchived, setDentistArchived] = useState(false);
-  useEffect(() => {
-    supabase.from('staff_users').select('full_name, archived_at').eq('id', DENTIST_ID).single()
-      .then(({ data }) => {
-        if (data?.full_name) setDentistName(data.full_name);
-        setDentistArchived(Boolean(data?.archived_at));
-      });
-  }, []);
+  const visibleTimeSlots = Array.from({ length: 15 }, (_, index) => {
+    const hour = index + 8;
+    const start = `${String(hour).padStart(2, '0')}:00`;
+    const end = `${String(hour + 1).padStart(2, '0')}:00`;
+    return `${formatTime(start)} – ${formatTime(end)}`;
+  });
 
   // Slots already taken on the chosen date (anyone's non-rejected appointment) or already past today
   const bookedTimes = new Set(
     (existingAppointments || [])
       .filter(a => a.appointment_date === formData.appointmentDate && !NON_BLOCKING.includes(a.status))
-      .filter(a => !a.assigned_dentist || !dentistName || a.assigned_dentist === dentistName)
+      .filter(a => !a.assigned_dentist || a.assigned_dentist === dentistName)
       .map(a => a.appointment_time)
   );
   const todayKeyLocal = (() => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; })();
@@ -192,8 +202,16 @@ export default function AppointmentRegistrationWizard({
       setFormError('Please select at least one dental service to continue.');
       return;
     }
+    if (currentStep === 2 && !selectedDentist) {
+      setFormError('Please choose a dentist to see their availability.');
+      return;
+    }
     if (currentStep === 2 && !formData.appointmentDate) {
       setFormError('Please select a valid appointment date.');
+      return;
+    }
+    if (currentStep === 2 && !availabilityMap[formData.appointmentDate]) {
+      setFormError('The selected dentist has no availability on that date. Please choose another date.');
       return;
     }
     if (currentStep === 3 && !formData.appointmentTime) {
@@ -221,13 +239,17 @@ export default function AppointmentRegistrationWizard({
       setFormError('Please check both consent and confirmation boxes to submit.');
       return;
     }
+    if (formData.isGuardianBooking && (!formData.guardianName.trim() || !formData.guardianRelationship.trim() || !formData.guardianContact.trim())) {
+      setFormError('Please complete all Guardian Information fields.');
+      return;
+    }
     if (!patient) {
       setFormError('Please sign in to your patient account to book an appointment.');
       return;
     }
 
-    if (dentistArchived) {
-      setFormError('This dentist is no longer available for booking. Please contact the clinic.');
+    if (!selectedDentist) {
+      setFormError('Please choose a dentist before submitting your appointment request.');
       return;
     }
 
@@ -249,10 +271,14 @@ export default function AppointmentRegistrationWizard({
         email: patient.email || null,
         service_name: formData.selectedServices.map(s => s.service_name).join(', '),
         service_price: selectedTotal,
-        assigned_dentist: dentistName || null,
+        assigned_dentist: dentistName,
         appointment_date: formData.appointmentDate,
         appointment_time: slotStart24(formData.appointmentTime),
         notes: formData.notes || null,
+        is_guardian_booking: formData.isGuardianBooking,
+        guardian_name: formData.isGuardianBooking ? formData.guardianName.trim() : null,
+        guardian_relationship: formData.isGuardianBooking ? formData.guardianRelationship.trim() : null,
+        guardian_contact: formData.isGuardianBooking ? formData.guardianContact.trim() : null,
         status: 'Pending'
       };
 
@@ -383,11 +409,40 @@ export default function AppointmentRegistrationWizard({
                 </ul>
               </div>
               <div className="space-y-2">
+                <label htmlFor="appointment-dentist" className="block text-xs font-bold text-[#13241b]">Choose dentist *</label>
+                <select
+                  id="appointment-dentist"
+                  value={selectedDentistId}
+                  disabled={loadingDentists}
+                  onChange={(event) => {
+                    setSelectedDentistId(event.target.value);
+                    setFormData((previous) => ({ ...previous, appointmentDate: '', appointmentTime: '' }));
+                    setAvailabilityMap({});
+                    setLoadingAvailability(Boolean(event.target.value));
+                    setFormError('');
+                  }}
+                  className="w-full max-w-xl border border-[#d4e2dc] rounded-xl p-3 bg-white text-sm font-semibold"
+                >
+                  <option value="">{loadingDentists ? 'Loading dentists…' : 'Select a dentist'}</option>
+                  {dentists.map((dentist) => (
+                    <option key={dentist.id} value={String(dentist.id)}>{dentist.full_name}</option>
+                  ))}
+                </select>
+                {!loadingDentists && dentists.length === 0 && (
+                  <p className="text-xs text-amber-700">No active dentists are currently available for booking.</p>
+                )}
+                {loadingAvailability && <p className="text-xs text-[#607368]">Loading this dentist’s schedule…</p>}
+                {!loadingAvailability && selectedDentist && Object.keys(availabilityMap).length === 0 && (
+                  <p className="text-xs text-[#607368]">This dentist has no upcoming availability listed yet.</p>
+                )}
+              </div>
+              <div className="space-y-2">
                 <label className="block text-xs font-bold text-[#13241b]">Appointment date *</label>
               </div>
               <AvailabilityDatePicker
-                availabilityMap={dentistArchived ? {} : availabilityMap}
+                availabilityMap={availabilityMap}
                 value={formData.appointmentDate}
+                availabilityTimeRange="8:00 AM – 11:00 PM"
                 onChange={(dateKey) => {
                   // changing the date invalidates a previously chosen time
                   setFormData(prev => ({ ...prev, appointmentDate: dateKey, appointmentTime: '' }));
@@ -396,7 +451,7 @@ export default function AppointmentRegistrationWizard({
               />
               {formData.appointmentDate && availabilityMap[formData.appointmentDate] && (
                 <p className="text-xs font-bold text-[#164e43]">
-                  Selected: {formData.appointmentDate} · Dentist available {formatTime(availabilityMap[formData.appointmentDate].timeIn)} – {formatTime(availabilityMap[formData.appointmentDate].timeOut)}
+                  Selected: {formData.appointmentDate} · Appointment times available 8:00 AM – 11:00 PM
                 </p>
               )}
               <div className="flex gap-3 pt-4 border-t border-[#f0f5f2]">
@@ -410,6 +465,11 @@ export default function AppointmentRegistrationWizard({
           {currentStep === 3 && (
             <div className="space-y-6">
               <h3 className="text-2xl font-black text-[#13241b]">Choose an available time</h3>
+          {visibleTimeSlots.length === 0 && (
+            <p className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm font-semibold text-amber-800">
+              No appointment slots fit this dentist’s hours on the selected date. Choose another date or dentist.
+            </p>
+          )}
               <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
                 {visibleTimeSlots.map((slot) => {
                   const isSelected = formData.appointmentTime === slot;
@@ -431,7 +491,7 @@ export default function AppointmentRegistrationWizard({
                 })}
               </div>
               {visibleTimeSlots.length === 0 && (
-                <p className="text-xs font-bold text-gray-500">No time slots fall within the dentist's hours on this date. Please go back and choose another date.</p>
+                <p className="text-xs font-bold text-gray-500">No appointment time slots are available. Please go back and choose another date.</p>
               )}
               <div className="flex gap-3 pt-4 border-t border-[#f0f5f2]">
                 <button type="button" onClick={handleBack} className="bg-white border border-[#d4e2dc] text-[#13241b] px-6 py-3 rounded-xl font-bold text-xs cursor-pointer">Back</button>
@@ -471,6 +531,58 @@ export default function AppointmentRegistrationWizard({
                 <textarea rows="2" value={formData.notes || ''} onChange={(e) => handleChange('notes', e.target.value)} placeholder="e.g. Sensitive lower molar" className="w-full border border-[#d4e2dc] rounded-xl p-3 text-xs bg-white" />
               </div>
               <p className="text-[11px] text-[#607368]">Your request will be reviewed by the clinic assistant. You can follow its status under My Records.</p>
+
+              <div className="space-y-3">
+                <label className="flex items-start gap-3 cursor-pointer text-xs">
+                  <input
+                    type="checkbox"
+                    checked={formData.isGuardianBooking}
+                    onChange={(e) => handleChange('isGuardianBooking', e.target.checked)}
+                    className="mt-0.5 rounded border-gray-300 text-[#164e43]"
+                  />
+                  <span className="font-semibold text-[#13241b]">I am a guardian booking this appointment for the patient.</span>
+                </label>
+                {formData.isGuardianBooking && (
+                  <section className="rounded-xl border border-[#bcd7ca] bg-[#f5faf7] p-4 sm:p-5 space-y-4">
+                    <div>
+                      <h4 className="text-sm font-black text-[#164e43]">Guardian Information</h4>
+                      <p className="mt-1 text-[11px] text-[#607368]">Please provide your contact details as the patient’s guardian.</p>
+                    </div>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      <label className="block text-xs font-bold text-[#13241b]">
+                        Guardian full name *
+                        <input
+                          type="text"
+                          value={formData.guardianName}
+                          onChange={(e) => handleChange('guardianName', e.target.value)}
+                          autoComplete="name"
+                          className="mt-1 w-full rounded-lg border border-[#d4e2dc] bg-white px-3 py-2.5 text-xs font-normal outline-none focus:border-[#164e43]"
+                        />
+                      </label>
+                      <label className="block text-xs font-bold text-[#13241b]">
+                        Relationship to patient *
+                        <input
+                          type="text"
+                          value={formData.guardianRelationship}
+                          onChange={(e) => handleChange('guardianRelationship', e.target.value)}
+                          placeholder="e.g. Parent"
+                          className="mt-1 w-full rounded-lg border border-[#d4e2dc] bg-white px-3 py-2.5 text-xs font-normal outline-none focus:border-[#164e43]"
+                        />
+                      </label>
+                      <label className="block text-xs font-bold text-[#13241b] sm:col-span-2">
+                        Guardian contact number *
+                        <input
+                          type="tel"
+                          value={formData.guardianContact}
+                          onChange={(e) => handleChange('guardianContact', e.target.value)}
+                          autoComplete="tel"
+                          className="mt-1 w-full rounded-lg border border-[#d4e2dc] bg-white px-3 py-2.5 text-xs font-normal outline-none focus:border-[#164e43]"
+                        />
+                      </label>
+                    </div>
+                  </section>
+                )}
+              </div>
 
               <div className="space-y-3 text-xs pt-2">
                 <label className="flex items-start gap-3 cursor-pointer">

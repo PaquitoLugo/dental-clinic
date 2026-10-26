@@ -1,4 +1,4 @@
-import React, { useState, useContext } from 'react';
+import { useState, useContext } from 'react';
 import { ClinicContext, ClinicProvider } from './context/ClinicContext';
 import PatientModule from './views/PatientModule';
 import AssistantModule from './views/AssistantModule';
@@ -95,7 +95,7 @@ function MainWorkspace({ authenticatedUser, handleLogout }) {
         currentView === 'dashboard' ? 'bg-[#164e43] text-white' : 'text-[#607368] hover:bg-[#f5f7f6]'
       }`}
     >
-      📊 Dashboard
+      📊 Dashboard & Reports
     </button>
     <button 
       onClick={() => setCurrentView('scheduler')} 
@@ -122,14 +122,6 @@ function MainWorkspace({ authenticatedUser, handleLogout }) {
       🦷 Patient Tooth Charts
     </button>
     <button 
-      onClick={() => setCurrentView('reports')} 
-      className={`w-full text-left px-4 py-3 rounded-xl font-bold text-xs transition cursor-pointer ${
-        currentView === 'reports' ? 'bg-[#164e43] text-white' : 'text-[#607368] hover:bg-[#f5f7f6]'
-      }`}
-    >
-      📈 Reports & Analytics
-    </button>
-    <button 
       onClick={() => setCurrentView('profile')} 
       className={`w-full text-left px-4 py-3 rounded-xl font-bold text-xs transition cursor-pointer ${
         currentView === 'profile' ? 'bg-[#164e43] text-white' : 'text-[#607368] hover:bg-[#f5f7f6]'
@@ -141,12 +133,24 @@ function MainWorkspace({ authenticatedUser, handleLogout }) {
 )}
 
             {isAssistant && (
-              <button 
-                onClick={() => setCurrentView('queue')} 
-                className="w-full text-left px-4 py-3 rounded-xl font-bold text-xs bg-[#164e43] text-white"
-              >
-                📋 Patient Queue & Check-in
-              </button>
+              <>
+                <button
+                  onClick={() => setCurrentView('queue')}
+                  className={`w-full text-left px-4 py-3 rounded-xl font-bold text-xs transition cursor-pointer ${
+                    currentView === 'queue' ? 'bg-[#164e43] text-white' : 'text-[#607368] hover:bg-[#f5f7f6]'
+                  }`}
+                >
+                  📋 Patient Queue &amp; Check-in
+                </button>
+                <button
+                  onClick={() => setCurrentView('archive')}
+                  className={`w-full text-left px-4 py-3 rounded-xl font-bold text-xs transition cursor-pointer ${
+                    currentView === 'archive' ? 'bg-[#164e43] text-white' : 'text-[#607368] hover:bg-[#f5f7f6]'
+                  }`}
+                >
+                  🗄️ Appointment Archive
+                </button>
+              </>
             )}
 
             {isPatient && (
@@ -213,7 +217,7 @@ function MainWorkspace({ authenticatedUser, handleLogout }) {
             user={authenticatedUser} 
           />
         )}
-        {isAssistant && <AssistantModule {...contextData} user={authenticatedUser} />}
+        {isAssistant && <AssistantModule {...contextData} currentView={currentView} onViewChange={setCurrentView} user={authenticatedUser} />}
         {isPatient && (
           <PatientModule 
             {...contextData} 

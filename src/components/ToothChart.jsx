@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { supabase } from '../lib/supabase';
 import { recordActivity } from '../lib/activityLog';
 
@@ -6,6 +6,8 @@ import { recordActivity } from '../lib/activityLog';
 // the patient's right side is on the left of the screen.
 const UPPER = [18, 17, 16, 15, 14, 13, 12, 11, 21, 22, 23, 24, 25, 26, 27, 28];
 const LOWER = [48, 47, 46, 45, 44, 43, 42, 41, 31, 32, 33, 34, 35, 36, 37, 38];
+const SUPERNUMERARY_TYPES = ['Mesiodens', 'Distomolar', 'Paramolar', 'Supplemental tooth', 'Other'];
+const SUPERNUMERARY_LOCATIONS = ['Upper midline', 'Upper right', 'Upper left', 'Lower right', 'Lower left'];
 
 export const TOOTH_STATUSES = {
   healthy:         { label: 'Healthy',          fill: '#ffffff', stroke: '#164e43' },
@@ -95,7 +97,7 @@ function Arch({ numbers, chart, selected, onSelect, flipped, recent }) {
         return (
           <g key={n} transform={`translate(${x + midGap},${flipped ? 20 : 0})`}>
             <ToothShape number={n} status={chart[n]?.status || 'healthy'} selected={selected === n} flipped={flipped} onClick={() => onSelect(n)} />
-            {recent.has(n) && <circle cx={37} cy={flipped ? -12 : 76} r={3.5} fill="#f59e0b"><title>Changed in the last {RECENT_DAYS} days</title></circle>}
+            {recent.has(String(n)) && <circle cx={37} cy={flipped ? -12 : 76} r={3.5} fill="#f59e0b"><title>Changed in the last {RECENT_DAYS} days</title></circle>}
             {flipped ? (
               <text x={22} y={-8} textAnchor="middle" fontSize="11" fontWeight="700" fill={selected === n ? '#164e43' : '#607368'}>{n}</text>
             ) : (
@@ -105,6 +107,72 @@ function Arch({ numbers, chart, selected, onSelect, flipped, recent }) {
         );
       })}
     </svg>
+  );
+}
+
+function SupernumeraryChartRow({ teeth, selected, onSelect, recent }) {
+  if (teeth.length === 0) return null;
+  const groups = SUPERNUMERARY_LOCATIONS.map((location) => ({
+    location,
+    teeth: teeth.filter((tooth) => tooth.tooth_location === location),
+  })).filter((group) => group.teeth.length > 0);
+
+  return (
+    <section className="border-t border-dashed border-[#d4e2dc] pt-3" aria-label="Supernumerary teeth in chart">
+      <div className="mb-3 flex flex-wrap items-center gap-2">
+        <h4 className="text-[10px] font-black uppercase tracking-wider text-[#607368]">Additional teeth · select a tooth to chart its status</h4>
+        <span className="rounded-full bg-[#e3ede6] px-2 py-0.5 text-[10px] font-bold text-[#164e43]">{teeth.length}</span>
+      </div>
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-5">
+        {groups.map(({ location, teeth: locationTeeth }) => (
+          <div key={location} className="min-w-0 rounded-xl border border-[#e5ece8] bg-[#f8faf9] p-2">
+            <p className="truncate text-center text-[9px] font-bold uppercase tracking-wide text-[#607368]">{location}</p>
+            <div className="mt-2 flex flex-wrap justify-center gap-2">
+              {locationTeeth.map((tooth) => {
+                const status = TOOTH_STATUSES[tooth.status] || TOOTH_STATUSES.healthy;
+                const missing = tooth.status === 'missing';
+                return (
+                  <button
+                    key={tooth.tooth_number}
+                    type="button"
+                    onClick={() => onSelect(tooth.tooth_number)}
+                    aria-label={`${tooth.tooth_number}, ${tooth.tooth_type || 'supernumerary tooth'}, ${location}, ${status.label}`}
+                    aria-pressed={String(selected) === String(tooth.tooth_number)}
+                    className={`flex min-w-14 flex-col items-center rounded-lg border px-2 py-1.5 transition hover:bg-white ${
+                      String(selected) === String(tooth.tooth_number)
+                        ? 'border-[#164e43] bg-[#eaf4ef] ring-2 ring-[#164e43]'
+                        : 'border-transparent bg-transparent'
+                    }`}
+                  >
+                    <svg viewBox="0 0 44 66" className="h-12 w-10" aria-hidden="true">
+                      <path
+                        d="M 15 28 L 18 6 L 22 27 L 26 6 L 29 28"
+                        fill={missing ? 'none' : '#f3e9d8'}
+                        stroke={missing ? '#9ca3af' : '#c7b79b'}
+                        strokeWidth="1.5"
+                        strokeDasharray={missing ? '3 2' : undefined}
+                      />
+                      <path
+                        d="M 12 30 Q 12 26 16 26 L 28 26 Q 32 26 32 30 L 32 44 Q 32 56 27 59 Q 22 62 17 59 Q 12 56 12 44 Z"
+                        fill={status.fill}
+                        stroke={String(selected) === String(tooth.tooth_number) ? '#164e43' : status.stroke}
+                        strokeWidth={String(selected) === String(tooth.tooth_number) ? 2.6 : 1.8}
+                        strokeDasharray={missing ? '4 3' : undefined}
+                      />
+                      {missing && <path d="M 16 34 L 28 52 M 28 34 L 16 52" stroke="#6b7280" strokeWidth="2" />}
+                      {tooth.status === 'implant' && <path d="M 16 36 H 28 M 16 42 H 28 M 16 48 H 28" stroke="#334155" strokeWidth="1.5" />}
+                    </svg>
+                    <span className="mt-1 text-[10px] font-black text-[#164e43]">{tooth.tooth_number}</span>
+                    <span className="max-w-24 truncate text-[9px] text-[#607368]">{tooth.tooth_type || 'Extra tooth'}</span>
+                    {recent.has(String(tooth.tooth_number)) && <span className="mt-0.5 text-[8px] font-bold text-amber-700">Recently updated</span>}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        ))}
+      </div>
+    </section>
   );
 }
 
@@ -123,6 +191,10 @@ export default function ToothChart({ patientId, patientName, canEdit = false, ed
   const [draftNotes, setDraftNotes] = useState('');
   const [saving, setSaving] = useState(false);
   const [savedMsg, setSavedMsg] = useState('');
+  const [showSupernumeraryForm, setShowSupernumeraryForm] = useState(false);
+  const [supernumeraryType, setSupernumeraryType] = useState(SUPERNUMERARY_TYPES[0]);
+  const [supernumeraryLocation, setSupernumeraryLocation] = useState(SUPERNUMERARY_LOCATIONS[0]);
+  const [addingSupernumerary, setAddingSupernumerary] = useState(false);
 
   const load = useCallback(async () => {
     if (!patientId) { setChart({}); return; }
@@ -152,14 +224,94 @@ export default function ToothChart({ patientId, patientName, canEdit = false, ed
     setSelected(n);
     setDraftStatus(chart[n]?.status || 'healthy');
     setDraftNotes(chart[n]?.notes || '');
+    setSupernumeraryType(chart[n]?.tooth_type || SUPERNUMERARY_TYPES[0]);
+    setSupernumeraryLocation(chart[n]?.tooth_location || SUPERNUMERARY_LOCATIONS[0]);
     setSavedMsg('');
+  };
+
+  const supernumeraryTeeth = Object.values(chart)
+    .filter((tooth) => String(tooth.tooth_number).startsWith('SUP-'))
+    .sort((a, b) => String(a.tooth_number).localeCompare(String(b.tooth_number), undefined, { numeric: true }));
+
+  const addSupernumerary = async () => {
+    if (!canEdit || !patientId || addingSupernumerary) return;
+    setAddingSupernumerary(true);
+    setError('');
+    try {
+      if (beforeSave) {
+        const blocked = await beforeSave();
+        if (blocked) {
+          setError(blocked);
+          return;
+        }
+      }
+      const nextNumber = supernumeraryTeeth.reduce((largest, tooth) => {
+        const match = /^SUP-(\d+)$/.exec(String(tooth.tooth_number));
+        return match ? Math.max(largest, Number(match[1])) : largest;
+      }, 0) + 1;
+      const number = `SUP-${String(nextNumber).padStart(2, '0')}`;
+      const row = {
+        patient_id: patientId,
+        tooth_number: number,
+        tooth_type: supernumeraryType,
+        tooth_location: supernumeraryLocation,
+        status: 'healthy',
+        notes: null,
+        updated_by: editorName || null,
+        updated_at: new Date().toISOString(),
+      };
+      const { error: err } = await supabase.from('tooth_chart').insert(row);
+      if (err) {
+        setError(`Could not add the supernumerary tooth: ${err.message}`);
+        return;
+      }
+      setChart((prev) => ({ ...prev, [number]: row }));
+      const { data: logged, error: logErr } = await supabase.from('tooth_chart_history').insert({
+        patient_id: patientId,
+        tooth_number: number,
+        tooth_type: supernumeraryType,
+        tooth_location: supernumeraryLocation,
+        status: 'healthy',
+        previous_status: null,
+        notes: null,
+        updated_by: editorName || null,
+      }).select().single();
+      if (logErr) {
+        setError(`Supernumerary tooth added, but its history could not be recorded: ${logErr.message}`);
+      } else {
+        setHistory((prev) => [logged, ...prev]);
+      }
+      await recordActivity(activityUser, {
+        action: `Added supernumerary tooth ${number} for ${patientName || 'patient'}`,
+        entityType: 'tooth_chart',
+        entityId: `${patientId}-${number}`,
+        details: { tooth_type: supernumeraryType, tooth_location: supernumeraryLocation },
+      });
+      setSelected(number);
+      setDraftStatus('healthy');
+      setDraftNotes('');
+      setSavedMsg(`Supernumerary tooth ${number} added.`);
+      setShowSupernumeraryForm(false);
+    } catch (err) {
+      setError(`Could not add the supernumerary tooth: ${err.message}`);
+    } finally {
+      setAddingSupernumerary(false);
+    }
   };
 
   const save = async () => {
     if (!selected) return;
     const current = chart[selected];
     const cleanNotes = draftNotes.trim() || null;
-    if ((current?.status || 'healthy') === draftStatus && (current?.notes || null) === cleanNotes) {
+    const isSupernumerary = String(selected).startsWith('SUP-');
+    if (
+      (current?.status || 'healthy') === draftStatus &&
+      (current?.notes || null) === cleanNotes &&
+      (!isSupernumerary || (
+        (current?.tooth_type || SUPERNUMERARY_TYPES[0]) === supernumeraryType &&
+        (current?.tooth_location || SUPERNUMERARY_LOCATIONS[0]) === supernumeraryLocation
+      ))
+    ) {
       setSavedMsg('No changes to save.');
       return;
     }
@@ -172,6 +324,8 @@ export default function ToothChart({ patientId, patientName, canEdit = false, ed
     const row = {
       patient_id: patientId,
       tooth_number: selected,
+      tooth_type: isSupernumerary ? supernumeraryType : current?.tooth_type || null,
+      tooth_location: isSupernumerary ? supernumeraryLocation : current?.tooth_location || null,
       status: draftStatus,
       notes: cleanNotes,
       updated_by: editorName || null,
@@ -196,6 +350,8 @@ export default function ToothChart({ patientId, patientName, canEdit = false, ed
       .insert({
         patient_id: patientId,
         tooth_number: selected,
+        tooth_type: row.tooth_type,
+        tooth_location: row.tooth_location,
         status: draftStatus,
         previous_status: current?.status || 'healthy',
         notes: cleanNotes,
@@ -229,7 +385,7 @@ export default function ToothChart({ patientId, patientName, canEdit = false, ed
     return new Set(entries.filter((e) => new Date(e.created_at).getTime() >= cutoff).map((e) => e.tooth_number));
   }, [entries]);
 
-  const toothEntries = useMemo(() => entries.filter((e) => e.tooth_number === selected), [entries, selected]);
+  const toothEntries = useMemo(() => entries.filter((e) => String(e.tooth_number) === String(selected)), [entries, selected]);
 
   const counts = useMemo(() => {
     const c = {};
@@ -257,7 +413,7 @@ export default function ToothChart({ patientId, patientName, canEdit = false, ed
           <div>
             <h3 className="font-black text-base text-[#13241b]">{patientName ? `${patientName}'s Tooth Chart` : 'Tooth Chart'}</h3>
             <p className="text-[11px] text-[#607368]">
-              Adult teeth, FDI numbering. {canEdit ? 'Click a tooth to update its status.' : 'Click a tooth to see its details.'} Teeth with no record are shown as healthy.
+              Adult teeth, FDI numbering. Supernumerary teeth are recorded separately below. {canEdit ? 'Click a tooth to update its status.' : 'Click a tooth to see its details.'} Teeth with no record are shown as healthy.
             </p>
           </div>
           {lastUpdate && <span className="text-[11px] font-bold bg-[#e3ede6] text-[#164e43] px-3 py-1 rounded-full">Last updated {lastUpdate}</span>}
@@ -276,6 +432,12 @@ export default function ToothChart({ patientId, patientName, canEdit = false, ed
             <div className="border-t border-dashed border-[#d4e2dc]" />
             <Arch numbers={LOWER} chart={chart} selected={selected} onSelect={selectTooth} flipped recent={recentTeeth} />
             <div className="flex justify-between text-[10px] font-black uppercase tracking-wider text-[#607368] px-1"><span>Patient's right</span><span>Lower</span><span>Patient's left</span></div>
+            <SupernumeraryChartRow
+              teeth={supernumeraryTeeth}
+              selected={selected}
+              onSelect={selectTooth}
+              recent={recentTeeth}
+            />
           </div>
         )}
 
@@ -292,12 +454,79 @@ export default function ToothChart({ patientId, patientName, canEdit = false, ed
         </div>
       </div>
 
+      <section className="bg-white border border-[#d4e2dc] rounded-2xl p-5 shadow-2xs space-y-3">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <h4 className="font-black text-sm text-[#13241b]">Supernumerary teeth</h4>
+            <p className="mt-1 text-[11px] text-[#607368]">Record extra teeth separately from the standard FDI chart.</p>
+          </div>
+          {canEdit && !showSupernumeraryForm && (
+            <button
+              type="button"
+              onClick={() => setShowSupernumeraryForm(true)}
+              className="rounded-xl bg-[#164e43] px-4 py-2 text-xs font-bold text-white hover:bg-[#0f362e]"
+            >
+              + Add extra tooth
+            </button>
+          )}
+        </div>
+        {showSupernumeraryForm && canEdit && (
+          <div className="rounded-xl border border-[#bcd7ca] bg-[#f5faf7] p-4 space-y-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <label className="block text-xs font-bold text-[#13241b]">
+                Classification
+                <select value={supernumeraryType} onChange={(e) => setSupernumeraryType(e.target.value)} className="mt-1 w-full rounded-lg border border-[#d4e2dc] bg-white p-2.5 text-xs">
+                  {SUPERNUMERARY_TYPES.map((type) => <option key={type} value={type}>{type}</option>)}
+                </select>
+              </label>
+              <label className="block text-xs font-bold text-[#13241b]">
+                Location
+                <select value={supernumeraryLocation} onChange={(e) => setSupernumeraryLocation(e.target.value)} className="mt-1 w-full rounded-lg border border-[#d4e2dc] bg-white p-2.5 text-xs">
+                  {SUPERNUMERARY_LOCATIONS.map((location) => <option key={location} value={location}>{location}</option>)}
+                </select>
+              </label>
+            </div>
+            <div className="flex gap-2">
+              <button type="button" disabled={addingSupernumerary || loading} onClick={addSupernumerary} className="rounded-xl bg-[#164e43] px-4 py-2 text-xs font-bold text-white disabled:opacity-50">
+                {addingSupernumerary ? 'Adding...' : 'Add to chart'}
+              </button>
+              <button type="button" disabled={addingSupernumerary} onClick={() => setShowSupernumeraryForm(false)} className="rounded-xl border border-[#d4e2dc] bg-white px-4 py-2 text-xs font-bold text-[#40584f]">
+                Cancel
+              </button>
+            </div>
+          </div>
+        )}
+        {supernumeraryTeeth.length > 0 ? (
+          <ul className="divide-y divide-[#f0f5f2]">
+            {supernumeraryTeeth.map((tooth) => (
+              <li key={tooth.tooth_number}>
+                <button type="button" onClick={() => selectTooth(tooth.tooth_number)} className={`w-full rounded-lg px-3 py-2.5 text-left transition hover:bg-[#f8faf9] ${selected === tooth.tooth_number ? 'bg-[#eaf4ef]' : ''}`}>
+                  <span className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                    <span className="text-xs font-black text-[#164e43]">{tooth.tooth_number}</span>
+                    <span className="text-xs font-semibold text-[#13241b]">{tooth.tooth_type || 'Supernumerary tooth'}</span>
+                    <span className="text-[11px] text-[#607368]">{tooth.tooth_location || 'Location not specified'}</span>
+                    <span className="text-[10px] font-bold text-[#607368]">· {TOOTH_STATUSES[tooth.status]?.label || tooth.status}</span>
+                  </span>
+                </button>
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <p className="rounded-xl border border-dashed border-[#d4e2dc] py-4 text-center text-xs text-[#71827c]">No supernumerary teeth recorded.</p>
+        )}
+      </section>
+
       {selected && (
         <div className="bg-white border border-[#d4e2dc] rounded-2xl p-5 shadow-2xs space-y-3">
           <div className="flex justify-between items-start">
             <div>
-              <h4 className="font-black text-sm text-[#13241b]">Tooth {selected} · {toothName(selected)}</h4>
+              <h4 className="font-black text-sm text-[#13241b]">
+                {String(selected).startsWith('SUP-')
+                  ? `Extra tooth ${selected} · ${sel?.tooth_type || 'Supernumerary tooth'}`
+                  : `Tooth ${selected} · ${toothName(selected)}`}
+              </h4>
               <p className="text-[11px] text-[#607368]">
+                {String(selected).startsWith('SUP-') && <>{sel?.tooth_location || 'Location not specified'} · </>}
                 Status: <strong>{TOOTH_STATUSES[sel?.status || 'healthy'].label}</strong>
                 {sel?.updated_by ? ` · updated by ${sel.updated_by}` : ''}
               </p>
@@ -307,6 +536,22 @@ export default function ToothChart({ patientId, patientName, canEdit = false, ed
 
           {canEdit ? (
             <>
+              {String(selected).startsWith('SUP-') && (
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <label className="block text-xs font-bold text-[#13241b]">
+                    Classification
+                    <select value={supernumeraryType} onChange={(e) => setSupernumeraryType(e.target.value)} className="mt-1 w-full rounded-lg border border-[#d4e2dc] bg-white p-2.5 text-xs">
+                      {SUPERNUMERARY_TYPES.map((type) => <option key={type} value={type}>{type}</option>)}
+                    </select>
+                  </label>
+                  <label className="block text-xs font-bold text-[#13241b]">
+                    Location
+                    <select value={supernumeraryLocation} onChange={(e) => setSupernumeraryLocation(e.target.value)} className="mt-1 w-full rounded-lg border border-[#d4e2dc] bg-white p-2.5 text-xs">
+                      {SUPERNUMERARY_LOCATIONS.map((location) => <option key={location} value={location}>{location}</option>)}
+                    </select>
+                  </label>
+                </div>
+              )}
               <div className="flex flex-wrap gap-2">
                 {Object.entries(TOOTH_STATUSES).map(([key, s]) => (
                   <button

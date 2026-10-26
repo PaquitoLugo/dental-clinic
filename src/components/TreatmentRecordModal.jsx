@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
 import { supabase } from '../lib/supabase';
 import { recordActivity } from '../lib/activityLog';
 
@@ -10,7 +10,7 @@ const labelClass = 'block text-xs font-bold text-[#13241b] mb-1';
  *  - canEdit true  (dentist): form, saved to treatment_records
  *  - canEdit false (assistant / patient): read-only view
  */
-export default function TreatmentRecordModal({ appointment, record, canEdit = false, issuedBy = '', activityUser, onClose, onSaved }) {
+export default function TreatmentRecordModal({ appointment, record, canEdit = false, issuedBy = '', activityUser, beforeSave = null, onClose, onSaved }) {
   const [notes, setNotes] = useState(record?.notes || '');
   const [prescription, setPrescription] = useState(record?.prescription || '');
   const [followUp, setFollowUp] = useState(record?.follow_up || '');
@@ -25,6 +25,14 @@ export default function TreatmentRecordModal({ appointment, record, canEdit = fa
     }
     setSaving(true);
     setError('');
+    if (beforeSave) {
+      const blocked = await beforeSave();
+      if (blocked) {
+        setError(blocked);
+        setSaving(false);
+        return;
+      }
+    }
     const now = new Date().toISOString();
     const { error: err } = await supabase.from('treatment_records').upsert({
       appointment_id: String(appointment.id),

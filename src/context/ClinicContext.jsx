@@ -43,10 +43,10 @@ export function ClinicProvider({ children }) {
     else await refreshData();
   };
 
-  const updateAppointmentStatus = async (id, status, queue_number = 0) => {
+  const updateAppointmentStatus = async (id, status, queue_number = 0, additionalFields = {}) => {
     const { error } = await supabase
       .from('appointments')
-      .update({ status, queue_number })
+      .update({ status, queue_number, ...additionalFields })
       .eq('id', id);
     if (error) {
       alert('Supabase Error: ' + error.message);

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { supabase } from '../lib/supabase';
 import { dialog } from '../components/DialogHost';
 import PhAddressSelect from '../components/PhAddressSelect';
@@ -9,6 +9,9 @@ import usePatientContacts from '../data/usePatientContacts';
 import { belongsToPatient } from '../data/patientMatch';
 import { isAccountActive } from '../data/useSessionGuard';
 import { recordActivity } from '../lib/activityLog';
+import useAttendance from '../lib/useAttendance';
+import { formatClockTime, localDateKey } from '../lib/dateUtils';
+import { deactivateDentistAvailability, fetchDentistAvailability, saveDentistAvailability } from '../lib/dentistAvailability';
 
 // "23:38:00" / "13:00" -> "11:38 PM" / "1:00 PM"
 const formatApptTime = (t) => {
@@ -69,30 +72,41 @@ export default function DentistModule({
   const [chartPatientId, setChartPatientId] = useState('');
 
   // Daily Capacity & Scheduler State
-  const [maxDailyPatients, setMaxDailyPatients] = useState(() => {
-    return localStorage.getItem(`dentist_limit_${user?.id || 2}`) || 10;
-  });
+  const [maxDailyPatients, setMaxDailyPatients] = useState(10);
   const [limitSavedMsg, setLimitSavedMsg] = useState('');
+  const [limitSaveError, setLimitSaveError] = useState(false);
 
   // Interactive Calendar & Availability State
   const [calendarYear, setCalendarYear] = useState(TODAY.getFullYear());
   const [calendarMonth, setCalendarMonth] = useState(TODAY.getMonth()); // 0 - 11
-  const [selectedDateKey, setSelectedDateKey] = useState(new Date().toISOString().split('T')[0]);
+  const [selectedDateKey, setSelectedDateKey] = useState(localDateKey());
   const [timeInInput, setTimeInInput] = useState('08:00');
   const [timeOutInput, setTimeOutInput] = useState('17:00');
   
-  const [availabilityMap, setAvailabilityMap] = useState(() => {
-    const saved = localStorage.getItem(`dentist_availability_${user?.id || 2}`);
-    return saved ? JSON.parse(saved) : {};
-  });
+  const [availabilityMap, setAvailabilityMap] = useState({});
+  const [availabilityLoading, setAvailabilityLoading] = useState(true);
+  const [availabilityError, setAvailabilityError] = useState('');
   const [scheduleMsg, setScheduleMsg] = useState('');
 
   // Time-in / Time-out daily attendance record
-  const [attendanceLog, setAttendanceLog] = useState(() => {
-    const todayKey = new Date().toISOString().split('T')[0];
-    const saved = localStorage.getItem(`dentist_attendance_${user?.id || 2}_${todayKey}`);
-    return saved ? JSON.parse(saved) : { timeIn: null, timeOut: null };
+  const {
+    record: attendanceRecord,
+    loading: attendanceLoading,
+    saving: attendanceSaving,
+    message: attendanceMessage,
+    clockIn,
+    clockOut,
+    checkClockedIn,
+    checkPendingPatients,
+  } = useAttendance(user, {
+    timeIn: availabilityMap[localDateKey()]?.timeIn || '08:00',
+    timeOut: availabilityMap[localDateKey()]?.timeOut || '17:00',
   });
+  const attendanceLog = {
+    timeIn: formatClockTime(attendanceRecord?.clock_in),
+    timeOut: formatClockTime(attendanceRecord?.clock_out),
+  };
+  const dentistOnShift = Boolean(attendanceRecord?.clock_in && !attendanceRecord?.clock_out);
 
   // Archived accounts can't change their schedule or clock in/out (the session guard also signs them out)
   const requireActiveAccount = async () => {
@@ -101,10 +115,40 @@ export default function DentistModule({
     return false;
   };
 
+  const requireOnShift = async () => {
+    if (!(await requireActiveAccount())) return false;
+    const attendanceIssue = await checkClockedIn();
+    if (attendanceIssue) {
+      await dialog.alert(attendanceIssue, {
+        title: attendanceIssue.startsWith('Attendance verification failed') ? 'Attendance unavailable' : 'Time-in required',
+        variant: 'warning',
+      });
+      return false;
+    }
+    return true;
+  };
+
+  const verifyOnShift = async () => checkClockedIn();
+
   const handleSaveLimit = async (e) => {
     e.preventDefault();
-    if (!(await requireActiveAccount())) return;
-    localStorage.setItem(`dentist_limit_${user?.id || 2}`, maxDailyPatients);
+    if (!(await requireOnShift())) return;
+    setLimitSaveError(false);
+    const limit = Number(maxDailyPatients);
+    if (!Number.isInteger(limit) || limit < 1) {
+      setLimitSavedMsg('Daily patient limit must be a whole number greater than zero.');
+      setLimitSaveError(true);
+      return;
+    }
+    const { error } = await supabase.from('staff_users')
+      .update({ max_daily_patients: limit })
+      .eq('id', user.id);
+    if (error) {
+      setLimitSavedMsg(`Could not save daily patient limit: ${error.message}`);
+      setLimitSaveError(true);
+      return;
+    }
+    setMaxDailyPatients(String(limit));
     await recordActivity(user, { action: `Updated daily patient limit to ${maxDailyPatients}`, entityType: 'dentist_settings', entityId: user?.id });
     setLimitSavedMsg('Daily patient capacity limit updated successfully!');
     setTimeout(() => setLimitSavedMsg(''), 4000);
@@ -113,15 +157,20 @@ export default function DentistModule({
   // Save availability for a specific selected date
   const handleSaveSingleDayAvailability = async (e) => {
     e.preventDefault();
-    if (!(await requireActiveAccount())) return;
-    if (!selectedDateKey) return;
+    if (!(await requireOnShift())) return;
+    if (!selectedDateKey || !scheduleDentistName) return;
 
     const updated = {
       ...availabilityMap,
       [selectedDateKey]: { timeIn: timeInInput, timeOut: timeOutInput, active: true }
     };
-    setAvailabilityMap(updated);
-    localStorage.setItem(`dentist_availability_${user?.id || 2}`, JSON.stringify(updated));
+    try {
+      await saveDentistAvailability(scheduleDentistName, selectedDateKey, updated[selectedDateKey]);
+      setAvailabilityMap(updated);
+    } catch (error) {
+      setScheduleMsg(`Could not save availability: ${error.message}`);
+      return;
+    }
     await recordActivity(user, {
       action: `Updated availability for ${selectedDateKey}`,
       entityType: 'availability', entityId: selectedDateKey,
@@ -133,7 +182,8 @@ export default function DentistModule({
 
   // Apply availability to all matching weekdays of the current month
   const handleApplyToAllWeekdayInMonth = async (targetDayOfWeek) => {
-    if (!(await requireActiveAccount())) return;
+    if (!(await requireOnShift())) return;
+    if (!scheduleDentistName) return;
     const daysInMonth = new Date(calendarYear, calendarMonth + 1, 0).getDate();
     const updated = { ...availabilityMap };
     let count = 0;
@@ -151,8 +201,16 @@ export default function DentistModule({
       }
     }
 
-    setAvailabilityMap(updated);
-    localStorage.setItem(`dentist_availability_${user?.id || 2}`, JSON.stringify(updated));
+    try {
+      await Promise.all(Object.entries(updated)
+        .filter(([date]) => date.startsWith(`${calendarYear}-${String(calendarMonth + 1).padStart(2, '0')}-`)
+          && new Date(`${date}T00:00:00`).getDay() === targetDayOfWeek)
+        .map(([date, schedule]) => saveDentistAvailability(scheduleDentistName, date, schedule)));
+      setAvailabilityMap(updated);
+    } catch (error) {
+      setScheduleMsg(`Could not save all availability dates: ${error.message}`);
+      return;
+    }
     const dayNames = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
     await recordActivity(user, {
       action: `Applied availability to ${dayNames[targetDayOfWeek]}s in ${MONTHS[calendarMonth]}`,
@@ -164,33 +222,63 @@ export default function DentistModule({
   };
 
   const handleRemoveAvailability = async (dateStr) => {
-    if (!(await requireActiveAccount())) return;
+    if (!(await requireOnShift())) return;
+    if (!scheduleDentistName) return;
     const updated = { ...availabilityMap };
     delete updated[dateStr];
-    setAvailabilityMap(updated);
-    localStorage.setItem(`dentist_availability_${user?.id || 2}`, JSON.stringify(updated));
-    await recordActivity(user, { action: `Removed availability for ${dateStr}`, entityType: 'availability', entityId: dateStr });
+    try {
+      await deactivateDentistAvailability(scheduleDentistName, dateStr);
+      setAvailabilityMap(updated);
+      await recordActivity(user, { action: `Removed availability for ${dateStr}`, entityType: 'availability', entityId: dateStr });
+    } catch (error) {
+      setScheduleMsg(`Could not remove availability: ${error.message}`);
+    }
   };
 
   const handleClockIn = async () => {
     if (!(await requireActiveAccount())) return;
-    const nowTime = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: true });
-    const todayKey = new Date().toISOString().split('T')[0];
-    const newLog = { ...attendanceLog, timeIn: nowTime };
-    setAttendanceLog(newLog);
-    localStorage.setItem(`dentist_attendance_${user?.id || 2}_${todayKey}`, JSON.stringify(newLog));
-    await recordActivity(user, { action: 'Clocked in', entityType: 'attendance', entityId: `${user?.id || 2}-${todayKey}` });
+    if (!scheduleDentistName || availabilityError) {
+      await dialog.alert(
+        availabilityError || 'Could not identify your dentist account to verify working hours.',
+        { title: 'Schedule unavailable', variant: 'error' },
+      );
+      return;
+    }
+    const didClockIn = await clockIn();
+    if (!didClockIn) return;
+
+    const today = localDateKey();
+    const todayAvailability = availabilityMap[today];
+    const updated = {
+      ...availabilityMap,
+      [today]: {
+        timeIn: todayAvailability?.timeIn || timeInInput,
+        timeOut: todayAvailability?.timeOut || timeOutInput,
+        active: true,
+      },
+    };
+
+    try {
+      await saveDentistAvailability(scheduleDentistName, today, updated[today]);
+      setAvailabilityMap(updated);
+      setScheduleMsg(`Today's schedule (${today}) is now marked Available.`);
+    } catch (error) {
+      await dialog.alert(
+        `You have timed in, but today's schedule could not be marked Available: ${error.message}`,
+        { title: 'Schedule update failed', variant: 'error' },
+      );
+    }
   };
 
   const handleClockOut = async () => {
     if (!(await requireActiveAccount())) return;
+    const pendingPatientMessage = await checkPendingPatients();
+    if (pendingPatientMessage) {
+      await dialog.alert(pendingPatientMessage, { title: 'Patients still in progress', variant: 'warning' });
+      return;
+    }
     if (!(await dialog.confirm('Are you sure you want to record your time-out?', { title: 'Confirm time-out', confirmText: 'Time-Out' }))) return;
-    const nowTime = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: true });
-    const todayKey = new Date().toISOString().split('T')[0];
-    const newLog = { ...attendanceLog, timeOut: nowTime };
-    setAttendanceLog(newLog);
-    localStorage.setItem(`dentist_attendance_${user?.id || 2}_${todayKey}`, JSON.stringify(newLog));
-    await recordActivity(user, { action: 'Clocked out', entityType: 'attendance', entityId: `${user?.id || 2}-${todayKey}` });
+    await clockOut();
   };
 
   // Fetch practitioner profile and PSGC data from Supabase on mount
@@ -204,6 +292,7 @@ export default function DentistModule({
         .single();
 
       if (data && !error) {
+        setMaxDailyPatients(String(Number(data.max_daily_patients) || 10));
         setFirstName(data.first_name || (data.full_name ? data.full_name.split(' ')[0] : ''));
         setLastName(data.last_name || (data.full_name ? data.full_name.split(' ').slice(1).join(' ') : ''));
         setMiddleName(data.middle_name || '');
@@ -244,9 +333,31 @@ export default function DentistModule({
   }, [currentView]);
 
   const dentistName = `${firstName} ${middleName ? middleName + ' ' : ''}${lastName}`.trim();
+  const scheduleDentistName = user?.name || dentistName;
+  useEffect(() => {
+    if (!scheduleDentistName) return undefined;
+    let active = true;
+    const loadSchedule = async () => {
+      try {
+        const schedule = await fetchDentistAvailability(scheduleDentistName);
+        if (active) {
+          setAvailabilityMap(schedule);
+          setAvailabilityError('');
+        }
+      } catch (error) {
+        if (active) {
+          setAvailabilityError(`Could not load dentist availability: ${error.message}`);
+          setScheduleMsg(`Could not load dentist availability: ${error.message}`);
+        }
+      } finally {
+        if (active) setAvailabilityLoading(false);
+      }
+    };
+    loadSchedule();
+    return () => { active = false; };
+  }, [scheduleDentistName, user?.id]);
   const assignedAppointments = appointments.filter(a => a.assigned_dentist === dentistName || !a.assigned_dentist);
   const totalPatients = assignedAppointments.length;
-  const pendingPatients = assignedAppointments.filter(a => a.status === 'Pending' || a.status === 'Accepted' || a.status === 'In Queue' || a.status === 'In Treatment').length;
   const completedPatients = assignedAppointments.filter(a => a.status === 'Completed').length;
 
   // The tooth chart can only be edited while the patient is in the chair (appointment status "In Treatment")
@@ -256,6 +367,8 @@ export default function DentistModule({
   const chartPatientInChair = !!chartPatient && isPatientInChair(chartPatient);
   // Re-checked against the database right before saving, so a stale screen can't bypass the rule
   const verifyPatientInChair = async () => {
+    const attendanceIssue = await checkClockedIn();
+    if (attendanceIssue) return attendanceIssue;
     if (!chartPatient) return 'Select a patient first.';
     const { data, error } = await supabase.from('appointments').select('id, patient_id, patient_name, assigned_dentist')
       .eq('status', 'In Treatment');
@@ -264,6 +377,24 @@ export default function DentistModule({
     return ok ? null : 'This patient is not being treated by you right now. Ask the dental assistant to send them to the chair first.';
   };
   const completionRate = totalPatients > 0 ? Math.round((completedPatients / totalPatients) * 100) : 0;
+  const reportEndDate = new Date();
+  reportEndDate.setHours(0, 0, 0, 0);
+  const reportDays = Array.from({ length: 7 }, (_, index) => {
+    const date = new Date(reportEndDate);
+    date.setDate(date.getDate() - (6 - index));
+    const key = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+    const dayAppointments = assignedAppointments.filter((appointment) => appointment.appointment_date === key);
+    return {
+      key,
+      label: date.toLocaleDateString('en-US', { weekday: 'short' }),
+      completed: dayAppointments.filter((appointment) => appointment.status === 'Completed').length,
+      active: dayAppointments.filter((appointment) => ['Pending', 'Accepted', 'In Queue', 'In Treatment'].includes(appointment.status)).length,
+    };
+  });
+  const reportChartMax = Math.max(1, ...reportDays.map((day) => day.completed + day.active));
+  const reportActivePatients = assignedAppointments.filter((appointment) =>
+    ['Pending', 'Accepted', 'In Queue', 'In Treatment'].includes(appointment.status)
+  ).length;
 
   const filteredLogs = assignedAppointments.filter(a => {
     const matchesSearch = a.patient_name.toLowerCase().includes(searchQuery.toLowerCase());
@@ -275,6 +406,7 @@ export default function DentistModule({
 
   const handleProfileSave = async (e) => {
     e.preventDefault();
+    if (!(await requireOnShift())) return;
     setProfileSuccess('');
 
     const fullName = `${firstName.trim()} ${middleName ? middleName.trim() + ' ' : ''}${lastName.trim()}`.replace(/\s+/g, " ");
@@ -356,8 +488,8 @@ export default function DentistModule({
       
       {/* 1. DASHBOARD VIEW */}
       {currentView === 'dashboard' && (
-        <div className="space-y-6">
-          <div className="flex justify-between items-center">
+        <div className="flex-1 space-y-5">
+          <div className="flex flex-wrap justify-between items-center gap-3">
             <div>
               <h2 className="font-black text-2xl text-[#13241b]">Dentist Dashboard & Attendance</h2>
               <p className="text-xs text-[#607368]">Overview of your patient load and daily shift time tracking.</p>
@@ -374,7 +506,7 @@ export default function DentistModule({
                 <button 
                   type="button" 
                   onClick={handleClockIn}
-                  disabled={attendanceLog.timeIn !== null}
+                  disabled={attendanceLoading || availabilityLoading || Boolean(availabilityError) || attendanceSaving || attendanceLog.timeIn !== null}
                   className="bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white px-3 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer shadow-2xs"
                 >
                   Time-In
@@ -382,7 +514,7 @@ export default function DentistModule({
                 <button 
                   type="button" 
                   onClick={handleClockOut}
-                  disabled={attendanceLog.timeIn === null || attendanceLog.timeOut !== null}
+                  disabled={attendanceLoading || attendanceSaving || attendanceLog.timeIn === null || attendanceLog.timeOut !== null}
                   className="bg-amber-600 hover:bg-amber-700 disabled:opacity-50 text-white px-3 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer shadow-2xs"
                 >
                   Time-Out
@@ -390,35 +522,75 @@ export default function DentistModule({
               </div>
             </div>
           </div>
+          {attendanceMessage && <p role="alert" className="text-xs font-semibold text-red-700">{attendanceMessage}</p>}
+          {!attendanceLoading && !attendanceMessage && !dentistOnShift && (
+            <p className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs font-semibold text-amber-800">
+              Time in to your shift before saving clinical notes, editing tooth charts, or changing clinic settings.
+            </p>
+          )}
 
-          <div className="grid grid-cols-3 gap-6">
-            <div className="bg-white border border-[#d4e2dc] rounded-2xl p-6 shadow-2xs">
-              <p className="text-xs font-bold text-[#607368] uppercase tracking-wider">Total Patients Assigned</p>
-              <h3 className="text-4xl font-black text-[#164e43] mt-3">{totalPatients}</h3>
-            </div>
-            <div className="bg-white border border-[#d4e2dc] rounded-2xl p-6 shadow-2xs">
-              <p className="text-xs font-bold text-[#607368] uppercase tracking-wider">Pending / Waiting Patients</p>
-              <h3 className="text-4xl font-black text-amber-600 mt-3">{pendingPatients}</h3>
-            </div>
-            <div className="bg-white border border-[#d4e2dc] rounded-2xl p-6 shadow-2xs">
-              <p className="text-xs font-bold text-[#607368] uppercase tracking-wider">Completed Procedures</p>
-              <h3 className="text-4xl font-black text-emerald-600 mt-3">{completedPatients}</h3>
-            </div>
+          <div className="grid grid-cols-2 xl:grid-cols-4 gap-3">
+            {[
+              ['Total appointments', totalPatients, 'text-[#164e43]'],
+              ['Active / waiting', reportActivePatients, 'text-amber-600'],
+              ['Completed procedures', completedPatients, 'text-emerald-600'],
+              ['Completion rate', `${completionRate}%`, 'text-[#164e43]'],
+            ].map(([label, value, color]) => (
+              <div key={label} className="bg-white border border-[#d4e2dc] rounded-2xl p-5 shadow-2xs">
+                <p className="text-xs font-bold text-[#607368] uppercase tracking-wider">{label}</p>
+                <h3 className={`text-3xl font-black mt-2 ${color}`}>{value}</h3>
+              </div>
+            ))}
           </div>
 
-          <div className="bg-white border border-[#d4e2dc] rounded-2xl p-6 shadow-2xs max-w-xl space-y-4">
-            <div>
-              <h4 className="font-black text-base text-[#13241b]">Clinic Admittance & Daily Capacity Scheduler</h4>
-              <p className="text-xs text-[#607368]">Set the maximum number of patient appointments you can admit per day.</p>
-            </div>
-
-            {limitSavedMsg && (
-              <div className="bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs p-3 rounded-xl font-bold">
-                ✓ {limitSavedMsg}
+          <div className="grid grid-cols-1 xl:grid-cols-[minmax(0,1.7fr)_minmax(300px,1fr)] gap-4">
+            <section className="min-h-[330px] bg-white border border-[#d4e2dc] rounded-2xl p-5 shadow-2xs flex flex-col">
+              <div className="flex flex-wrap justify-between items-start gap-2">
+                <div>
+                  <h3 className="font-black text-lg text-[#13241b]">Weekly treatment report</h3>
+                  <p className="text-xs text-[#607368] mt-1">Completed and active appointments for the last 7 days.</p>
+                </div>
+                <div className="flex gap-4 text-[11px] font-semibold text-[#607368]">
+                  <span className="flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-sm bg-[#164e43]" />Completed</span>
+                  <span className="flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-sm bg-amber-400" />Active</span>
+                </div>
               </div>
-            )}
+              <div className="mt-5 flex flex-1 items-end gap-2 sm:gap-4 border-b border-l border-[#e5ece8] px-2 pb-2 pt-5">
+                {reportDays.map((day) => (
+                  <div key={day.key} className="flex h-full min-w-0 flex-1 flex-col items-center justify-end gap-2">
+                    <div className="flex h-full w-full max-w-14 items-end justify-center gap-1">
+                      <div
+                        title={`${day.completed} completed`}
+                        className="w-1/2 min-w-2 rounded-t bg-[#164e43] transition-all"
+                        style={{ height: `${day.completed ? Math.max((day.completed / reportChartMax) * 100, 5) : 2}%` }}
+                      />
+                      <div
+                        title={`${day.active} active`}
+                        className="w-1/2 min-w-2 rounded-t bg-amber-400 transition-all"
+                        style={{ height: `${day.active ? Math.max((day.active / reportChartMax) * 100, 5) : 2}%` }}
+                      />
+                    </div>
+                    <span className="text-[10px] font-semibold text-[#607368]">{day.label}</span>
+                    <span className="text-[9px] text-[#8a9992]">{day.completed + day.active}</span>
+                  </div>
+                ))}
+              </div>
+              <p className="mt-2 text-right text-[10px] text-[#8a9992]">Bars show appointments per day · number below each bar is the daily total</p>
+            </section>
 
-            <form onSubmit={handleSaveLimit} className="space-y-3 text-xs">
+            <section className="bg-white border border-[#d4e2dc] rounded-2xl p-5 shadow-2xs space-y-4">
+              <div>
+                <h3 className="font-black text-base text-[#13241b]">Clinic admittance &amp; daily capacity</h3>
+                <p className="text-xs text-[#607368] mt-1">Set the maximum number of patient appointments you can admit per day.</p>
+              </div>
+
+              {limitSavedMsg && (
+                <div role={limitSaveError ? 'alert' : 'status'} className={`${limitSaveError ? 'bg-red-50 border-red-200 text-red-800' : 'bg-emerald-50 border-emerald-200 text-emerald-800'} border text-xs p-3 rounded-xl font-bold`}>
+                  {limitSaveError ? '!' : '✓'} {limitSavedMsg}
+                </div>
+              )}
+
+              <form onSubmit={handleSaveLimit} className="space-y-3 text-xs">
               <div>
                 <label className="block font-bold text-[#13241b] mb-1">Max Patients Admitted Per Day</label>
                 <input 
@@ -437,6 +609,7 @@ export default function DentistModule({
                 Save Capacity Limit
               </button>
             </form>
+            </section>
           </div>
         </div>
       )}
@@ -474,7 +647,12 @@ export default function DentistModule({
             </div>
           </div>
 
-          {scheduleMsg && (
+          {availabilityError && (
+            <div role="alert" className="bg-red-50 border border-red-200 text-red-800 text-xs p-3.5 rounded-xl font-bold">
+              {availabilityError}
+            </div>
+          )}
+          {scheduleMsg && !availabilityError && (
             <div className="bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs p-3.5 rounded-xl font-bold">
               ✓ {scheduleMsg}
             </div>
@@ -717,6 +895,7 @@ export default function DentistModule({
                           <button
                             type="button"
                             onClick={() => setRecordTarget(a)}
+                            title={!dentistOnShift ? 'Time in before editing clinical notes.' : ''}
                             className={`px-3 py-1.5 rounded-xl font-bold text-[11px] cursor-pointer transition ${
                               treatmentRecords[String(a.id)]
                                 ? 'bg-emerald-50 text-emerald-700 border border-emerald-200 hover:bg-emerald-100'
@@ -759,9 +938,10 @@ export default function DentistModule({
         <TreatmentRecordModal
           appointment={recordTarget}
           record={treatmentRecords[String(recordTarget.id)]}
-          canEdit
+          canEdit={dentistOnShift}
           issuedBy={user?.name}
           activityUser={user}
+          beforeSave={verifyOnShift}
           onClose={() => setRecordTarget(null)}
           onSaved={refreshRecords}
         />
@@ -793,37 +973,16 @@ export default function DentistModule({
           <ToothChart
             patientId={chartPatientId ? Number(chartPatientId) : null}
             patientName={chartPatient?.full_name}
-            canEdit={chartPatientInChair}
-            readOnlyReason={chartPatient && !chartPatientInChair ? 'This patient is not in treatment right now, so the chart is read-only. The dental assistant must send the patient to the chair (status "In Treatment") before you can change any tooth.' : ''}
+            canEdit={chartPatientInChair && dentistOnShift}
+            readOnlyReason={chartPatient && (!attendanceRecord?.clock_in || attendanceRecord?.clock_out)
+              ? 'Time in to your shift before editing patient tooth charts.'
+              : chartPatient && !chartPatientInChair
+                ? 'This patient is not in treatment right now, so the chart is read-only. The dental assistant must send the patient to the chair (status "In Treatment") before you can change any tooth.'
+                : ''}
             beforeSave={verifyPatientInChair}
             editorName={user?.name}
             activityUser={user}
           />
-        </div>
-      )}
-
-      {/* 4. REPORTS VIEW */}
-      {currentView === 'reports' && (
-        <div className="space-y-6">
-          <div>
-            <h2 className="font-black text-2xl text-[#13241b]">Clinical Reports & Analytics</h2>
-            <p className="text-xs text-[#607368]">Performance metrics and procedure breakdowns for your practice.</p>
-          </div>
-
-          <div className="grid grid-cols-3 gap-6">
-            <div className="bg-white border border-[#d4e2dc] rounded-2xl p-6 shadow-2xs">
-              <p className="text-xs font-bold text-[#607368] uppercase tracking-wider">Completion Rate</p>
-              <h3 className="text-4xl font-black text-[#164e43] mt-3">{completionRate}%</h3>
-            </div>
-            <div className="bg-white border border-[#d4e2dc] rounded-2xl p-6 shadow-2xs">
-              <p className="text-xs font-bold text-[#607368] uppercase tracking-wider">Total Completed</p>
-              <h3 className="text-4xl font-black text-emerald-600 mt-3">{completedPatients}</h3>
-            </div>
-            <div className="bg-white border border-[#d4e2dc] rounded-2xl p-6 shadow-2xs">
-              <p className="text-xs font-bold text-[#607368] uppercase tracking-wider">Pending Procedures</p>
-              <h3 className="text-4xl font-black text-amber-600 mt-3">{pendingPatients}</h3>
-            </div>
-          </div>
         </div>
       )}
 

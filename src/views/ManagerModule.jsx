@@ -1,7 +1,7 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { supabase } from '../lib/supabase';
-import { dialog } from '../components/DialogHost';
 import { recordActivity } from '../lib/activityLog';
+import { localDateKey } from '../lib/dateUtils';
 import ManagerActivityLogs from './ManagerActivityLogs';
 
 const startOfWeek = (date) => {
@@ -24,6 +24,7 @@ const dateKey = (date) => {
 };
 
 const formatTime = (time = '') => time.slice(0, 5);
+const dentistReassignmentStatuses = ['Pending', 'Accepted', 'In Queue'];
 
 const appointmentBadgeStyle = {
   Pending: 'bg-gray-100 text-gray-700',
@@ -32,6 +33,7 @@ const appointmentBadgeStyle = {
   'In Treatment': 'bg-amber-100 text-amber-700',
   Completed: 'bg-green-100 text-green-700',
   Rejected: 'bg-red-100 text-red-700',
+  Cancelled: 'bg-gray-200 text-gray-700',
 };
 
 const appointmentStatusColor = (status) => {
@@ -42,12 +44,13 @@ const appointmentStatusColor = (status) => {
     case 'In Treatment': return 'border-l-amber-600 bg-amber-50';
     case 'Completed': return 'border-l-emerald-600 bg-emerald-50';
     case 'Rejected': return 'border-l-rose-500 bg-rose-50';
+    case 'Cancelled': return 'border-l-gray-500 bg-gray-50';
     case 'Checked-in': return 'border-l-blue-500 bg-blue-50';
     default: return 'border-l-[#9aa9a2] bg-[#f5f7f6]';
   }
 };
 
-export default function ManagerModule({ services, addService, updateService, deleteService, appointments, currentView, user }) {
+export default function ManagerModule({ services, addService, updateService, deleteService, appointments, refreshData, currentView, user }) {
   // User Management State
   const [staffUsers, setStaffUsers] = useState([]);
   const [loadingStaff, setLoadingStaff] = useState(false);
@@ -59,6 +62,14 @@ export default function ManagerModule({ services, addService, updateService, del
   const [editingStaff, setEditingStaff] = useState(null);
   const [staffDirectoryTab, setStaffDirectoryTab] = useState('active');
   const [userMsg, setUserMsg] = useState('');
+  const [patientFilter, setPatientFilter] = useState('active');
+  const [editingPatient, setEditingPatient] = useState(null);
+  const [patientForm, setPatientForm] = useState({});
+  const [appointmentPatient, setAppointmentPatient] = useState(null);
+  const [appointmentDentistDrafts, setAppointmentDentistDrafts] = useState({});
+  const [savingAppointmentId, setSavingAppointmentId] = useState(null);
+  const [appointmentAssignments, setAppointmentAssignments] = useState({});
+  const [appointmentAssignmentError, setAppointmentAssignmentError] = useState('');
 
   // Form States
   const [selectedCategory, setSelectedCategory] = useState('');
@@ -75,6 +86,9 @@ export default function ManagerModule({ services, addService, updateService, del
   const [calendarDate, setCalendarDate] = useState(() => new Date());
   const [calendarMode, setCalendarMode] = useState('week');
   const [dashboardPeriod, setDashboardPeriod] = useState('week');
+  const [staffAttendanceSummary, setStaffAttendanceSummary] = useState({ assistants: 0, dentists: 0, assistantsTimedIn: 0, dentistsTimedIn: 0 });
+  const [staffAttendanceError, setStaffAttendanceError] = useState('');
+  const [loadingStaffAttendance, setLoadingStaffAttendance] = useState(true);
 
   const [catalogSearchQuery, setCatalogSearchQuery] = useState('');
   const [catalogFilterCategory, setCatalogFilterCategory] = useState('ALL');
@@ -229,43 +243,186 @@ export default function ManagerModule({ services, addService, updateService, del
     }
   }, [currentView]);
 
+  useEffect(() => {
+    if (currentView !== 'dashboard') return undefined;
+    let active = true;
+
+    const fetchStaffAttendance = async () => {
+      const today = localDateKey();
+      const [staffResult, attendanceResult] = await Promise.all([
+        supabase.from('staff_users').select('id, role, account_status').in('role', ['assistant', 'dentist']).is('archived_at', null),
+        supabase.from('staff_attendance').select('staff_user_id, clock_in, clock_out').eq('attendance_date', today),
+      ]);
+      if (!active) return;
+      if (staffResult.error || attendanceResult.error) {
+        const error = staffResult.error || attendanceResult.error;
+        setStaffAttendanceError(`Staff attendance is unavailable: ${error.message}`);
+      } else {
+        const staff = (staffResult.data || []).filter((member) => !['Pending', 'Rejected'].includes(member.account_status));
+        const timedIn = new Set((attendanceResult.data || [])
+          .filter((record) => record.clock_in && !record.clock_out)
+          .map((record) => String(record.staff_user_id)));
+        setStaffAttendanceSummary({
+          assistants: staff.filter((member) => member.role === 'assistant').length,
+          dentists: staff.filter((member) => member.role === 'dentist').length,
+          assistantsTimedIn: staff.filter((member) => member.role === 'assistant' && timedIn.has(String(member.id))).length,
+          dentistsTimedIn: staff.filter((member) => member.role === 'dentist' && timedIn.has(String(member.id))).length,
+        });
+        setStaffAttendanceError('');
+      }
+      setLoadingStaffAttendance(false);
+    };
+
+    fetchStaffAttendance();
+    const refreshInterval = window.setInterval(fetchStaffAttendance, 60_000);
+    return () => {
+      active = false;
+      window.clearInterval(refreshInterval);
+    };
+  }, [currentView]);
+
   async function fetchStaffUsers() {
     setLoadingStaff(true);
     const { data, error } = await supabase.from('staff_users').select('*');
-    if (!error && data) setStaffUsers(data);
+    if (error) {
+      setUserMsg(`Could not load user accounts: ${error.message}`);
+    } else {
+      setStaffUsers(data || []);
+    }
     setLoadingStaff(false);
   }
 
-  // ---- Patient account verification (accept / reject self-registered patients) ----
-  const [patientFilter, setPatientFilter] = useState('Pending');
-  const statusOf = (u) => u.account_status || 'Approved';
-  const patientAccounts = staffUsers.filter((u) => u.role === 'patient');
-  const pendingCount = patientAccounts.filter((u) => statusOf(u) === 'Pending').length;
-  const visiblePatients = patientAccounts.filter((u) => patientFilter === 'All' || statusOf(u) === patientFilter);
+  const patientAccounts = staffUsers.filter((account) => account.role === 'patient');
+  const visiblePatients = patientAccounts.filter((account) =>
+    patientFilter === 'archived' ? Boolean(account.archived_at) : !account.archived_at,
+  );
+  const statusOf = (account) => account.account_status || 'Approved';
 
-  const handlePatientDecision = async (account, decision) => {
-    let reason = null;
-    if (decision === 'Rejected') {
-      reason = await dialog.prompt(`Reject ${account.full_name}'s registration?`, {
-        title: 'Reject registration',
-        placeholder: 'Optional reason (kept for your records)',
-        confirmText: 'Reject',
-        danger: true,
-      });
-      if (reason === null) return; // cancelled
-    } else if (!(await dialog.confirm(`Accept ${account.full_name}'s account? They will be able to sign in and book appointments.`, { title: 'Accept patient account', confirmText: 'Accept', variant: 'success' }))) {
+  const startEditingPatient = (account) => {
+    setEditingPatient(account);
+    setPatientForm({
+      full_name: account.full_name || '',
+      username: account.username || '',
+      email: account.email || '',
+      mobile_number: account.mobile_number || '',
+      birthdate: account.birthdate || '',
+      sex: account.sex || '',
+      complete_address: account.complete_address || '',
+    });
+  };
+
+  const handleSavePatient = async (event) => {
+    event.preventDefault();
+    if (!editingPatient) return;
+
+    const update = {
+      full_name: patientForm.full_name.trim(),
+      username: patientForm.username.trim().toLowerCase(),
+      email: patientForm.email.trim() || null,
+      mobile_number: patientForm.mobile_number.trim() || null,
+      birthdate: patientForm.birthdate || null,
+      sex: patientForm.sex.trim() || null,
+      complete_address: patientForm.complete_address.trim() || null,
+    };
+
+    const { error } = await supabase.from('staff_users').update(update).eq('id', editingPatient.id);
+    if (error) {
+      setUserMsg(`Could not update patient account: ${error.message}`);
       return;
     }
-    const { error } = await supabase
-      .from('staff_users')
-      .update({ account_status: decision, verified_at: new Date().toISOString(), rejection_reason: reason || null })
-      .eq('id', account.id);
-    if (!error) await recordActivity(user, {
-      action: `${decision === 'Approved' ? 'Approved' : 'Rejected'} patient account: ${account.full_name}`,
-      entityType: 'staff_user', entityId: account.id
+
+    await recordActivity(user, {
+      action: `Updated patient account: ${update.full_name}`,
+      entityType: 'staff_user',
+      entityId: editingPatient.id,
     });
-    setUserMsg(error ? `Could not update account: ${error.message}` : `${account.full_name}'s account was ${decision === 'Approved' ? 'accepted' : 'rejected'}.`);
-    fetchStaffUsers();
+    setEditingPatient(null);
+    setUserMsg(`${update.full_name}'s account was updated.`);
+    await fetchStaffUsers();
+  };
+
+  const setPatientArchived = async (account, archived) => {
+    const { error } = await supabase.from('staff_users')
+      .update({ archived_at: archived ? new Date().toISOString() : null })
+      .eq('id', account.id);
+    if (error) {
+      setUserMsg(`Could not ${archived ? 'archive' : 'restore'} patient account: ${error.message}`);
+      return;
+    }
+    await recordActivity(user, {
+      action: `${archived ? 'Archived' : 'Restored'} patient account: ${account.full_name}`,
+      entityType: 'staff_user',
+      entityId: account.id,
+    });
+    setUserMsg(`${account.full_name}'s account was ${archived ? 'archived' : 'restored'}.`);
+    await fetchStaffUsers();
+  };
+
+  const handlePatientDecision = async (account, decision) => {
+    const { error } = await supabase.from('staff_users')
+      .update({
+        account_status: decision,
+        verified_at: decision === 'Approved' ? new Date().toISOString() : null,
+      })
+      .eq('id', account.id);
+    if (error) {
+      setUserMsg(`Could not update ${account.full_name}'s account: ${error.message}`);
+      return;
+    }
+    await recordActivity(user, {
+      action: `${decision === 'Approved' ? 'Approved' : 'Rejected'} patient account: ${account.full_name}`,
+      entityType: 'staff_user',
+      entityId: account.id,
+    });
+    setUserMsg(`${account.full_name}'s account was ${decision === 'Approved' ? 'accepted' : 'rejected'}.`);
+    await fetchStaffUsers();
+  };
+
+  const appointmentsForPatient = (account) => appointments.filter((appointment) => (
+    (appointment.patient_id != null && String(appointment.patient_id) === String(account.id))
+    || (appointment.patient_name || '').trim().toLowerCase() === (account.full_name || '').trim().toLowerCase()
+  ));
+
+  const openAppointmentDentistModal = (account) => {
+    const patientAppointments = appointmentsForPatient(account);
+    setAppointmentPatient(account);
+    setAppointmentAssignmentError('');
+    setAppointmentDentistDrafts(Object.fromEntries(patientAppointments.map((appointment) => [
+      String(appointment.id),
+      appointmentAssignments[appointment.id] ?? appointment.assigned_dentist ?? '',
+    ])));
+  };
+
+  const saveAppointmentDentist = async (appointment) => {
+    if (!dentistReassignmentStatuses.includes(appointment.status)) {
+      setAppointmentAssignmentError('The assigned dentist can only be changed before treatment begins.');
+      return;
+    }
+    const dentistName = appointmentDentistDrafts[String(appointment.id)] || null;
+    setAppointmentAssignmentError('');
+    setSavingAppointmentId(appointment.id);
+    try {
+      const { error } = await supabase.from('appointments')
+        .update({ assigned_dentist: dentistName })
+        .eq('id', appointment.id)
+        .in('status', dentistReassignmentStatuses)
+        .select('id')
+        .single();
+      if (error) throw error;
+      await recordActivity(user, {
+        action: `Changed dentist for ${appointment.patient_name}'s appointment`,
+        entityType: 'appointment',
+        entityId: appointment.id,
+        details: { assigned_dentist: dentistName },
+      });
+      setAppointmentAssignments((previous) => ({ ...previous, [appointment.id]: dentistName || '' }));
+      await refreshData();
+      setUserMsg(`Dentist updated for ${appointment.patient_name}'s appointment.`);
+    } catch (error) {
+      setAppointmentAssignmentError(`Could not change the appointment dentist: ${error.message}`);
+    } finally {
+      setSavingAppointmentId(null);
+    }
   };
 
   const resetStaffForm = () => {
@@ -365,7 +522,7 @@ export default function ManagerModule({ services, addService, updateService, del
   const chartMax = Math.max(...chartValues, 1);
   const todayKey = dateKey(dashboardToday);
   const todaySchedule = appointments
-    .filter(a => a.appointment_date === todayKey && !['Pending', 'Rejected'].includes(a.status))
+    .filter(a => a.appointment_date === todayKey && !['Pending', 'Rejected', 'Cancelled'].includes(a.status))
     .sort((a, b) => formatTime(a.appointment_time).localeCompare(formatTime(b.appointment_time)));
   const topServices = Object.entries(periodAppointments.reduce((counts, a) => {
     const name = a.service_name || 'Other';
@@ -454,6 +611,27 @@ export default function ManagerModule({ services, addService, updateService, del
             <div className="bg-white border border-[#d4e2dc] rounded-2xl p-5"><p className="text-sm text-[#71827c]">Pending requests</p><h3 className="text-3xl font-black text-[#164e43] mt-2">{periodAppointments.filter(a => a.status === 'Pending').length}</h3></div>
             <div className="bg-white border border-[#d4e2dc] rounded-2xl p-5"><p className="text-sm text-[#71827c]">In queue now</p><h3 className="text-3xl font-black text-[#164e43] mt-2">{appointments.filter(a => a.appointment_date === todayKey && a.status === 'In Queue').length}</h3></div>
           </div>
+          <section className="space-y-3">
+            <div>
+              <h3 className="font-black text-lg text-[#13241b]">Staff attendance</h3>
+              <p className="text-xs text-[#607368]">Active assistants and dentists currently timed in today.</p>
+            </div>
+            {staffAttendanceError && <p role="alert" className="rounded-xl border border-red-200 bg-red-50 p-3 text-xs font-semibold text-red-700">{staffAttendanceError}</p>}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              {[
+                ['Dentists', staffAttendanceSummary.dentists, staffAttendanceSummary.dentistsTimedIn],
+                ['Assistants', staffAttendanceSummary.assistants, staffAttendanceSummary.assistantsTimedIn],
+              ].map(([role, total, timedIn]) => (
+                <div key={role} className="rounded-2xl border border-[#d4e2dc] bg-white p-5 shadow-2xs">
+                  <p className="text-xs font-bold uppercase tracking-wider text-[#607368]">{role}</p>
+                  <div className="mt-2 flex items-baseline gap-2">
+                    <span className="text-3xl font-black text-[#164e43]">{loadingStaffAttendance ? '—' : timedIn}</span>
+                    <span className="text-sm text-[#607368]">timed in / {loadingStaffAttendance ? '—' : total} active</span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </section>
           <div className="grid grid-cols-1 xl:grid-cols-[1.4fr_1fr] gap-4">
             <section className="bg-white border border-[#d4e2dc] rounded-2xl p-5 min-h-[300px]"><h3 className="font-black text-xl mb-5">Revenue trend</h3><div className="h-56 flex items-end justify-around gap-2 border-b border-[#e5ece8]">{chartDays.map((day, i) => <div key={dateKey(day)} className="h-full flex-1 flex flex-col justify-end items-center gap-2 min-w-0"><span className="text-[9px] leading-none font-semibold text-[#607368] whitespace-nowrap" title={`₱${chartValues[i].toLocaleString('en-PH')}`}>₱{new Intl.NumberFormat('en-PH', { notation: 'compact', maximumFractionDigits: 1 }).format(chartValues[i])}</span><div title={`₱${chartValues[i].toLocaleString('en-PH')}`} className={`w-full max-w-14 rounded-t-lg border border-[#407368] ${dateKey(day) === todayKey ? 'bg-[#164e43]' : 'bg-[#e2eee9]'}`} style={{ height: `${chartValues[i] ? Math.max((chartValues[i] / chartMax) * 68, 8) : 0}%` }} /><span className="text-xs text-[#71827c]">{dashboardPeriod === 'today' ? 'Today' : dashboardPeriod === 'month' ? day.getDate() : day.toLocaleDateString('en-US', { weekday: 'short' })}</span></div>)}</div></section>
             <section className="bg-white border border-[#d4e2dc] rounded-2xl p-5"><h3 className="font-black text-xl mb-4">Today’s schedule</h3><div className="divide-y divide-[#dce6e2]">{todaySchedule.length ? todaySchedule.map(a => <div key={a.id} className="py-3 flex items-center gap-3"><span className="text-sm text-[#71827c] w-14 shrink-0">{formatTime(a.appointment_time)}</span><div className="min-w-0 flex-1"><p className="font-bold truncate">{a.patient_name || 'Patient'}</p><p className="text-sm text-[#71827c] truncate">{a.service_name || 'Appointment'}{a.assigned_dentist ? ` · Dr. ${a.assigned_dentist}` : ''}</p></div><span className={`px-2.5 py-1 rounded-md text-[11px] font-bold ${appointmentBadgeStyle[a.status] || 'bg-gray-100 text-gray-700'}`}>{a.status}</span></div>) : <p className="py-8 text-sm text-[#71827c]">No appointments scheduled today.</p>}</div></section>
@@ -663,7 +841,7 @@ export default function ManagerModule({ services, addService, updateService, del
         <div className="flex-1 overflow-y-auto space-y-6 p-2">
           <div>
             <h2 className="font-black text-2xl text-[#13241b]">User & Role Management</h2>
-            <p className="text-xs text-[#607368]">Verify patient accounts and provision authorized staff.</p>
+            <p className="text-xs text-[#607368]">Provision and manage authorized staff accounts.</p>
           </div>
 
           {userMsg && (
@@ -672,66 +850,69 @@ export default function ManagerModule({ services, addService, updateService, del
             </div>
           )}
 
-          <div className="bg-white border border-[#d4e2dc] rounded-2xl p-6 shadow-2xs space-y-4">
-            <div className="flex flex-wrap justify-between items-center gap-3">
+          <section className="bg-white border border-[#d4e2dc] rounded-2xl p-6 shadow-2xs space-y-4">
+            <div className="flex flex-wrap items-center justify-between gap-3">
               <div>
-                <h3 className="font-black text-base text-[#13241b]">Patient Account Verification</h3>
-                <p className="text-[11px] text-[#607368]">Check each registration's details, then accept or reject the account. Patients can only sign in once accepted.</p>
+                <h3 className="font-black text-base text-[#13241b]">Patient User Management</h3>
+                <p className="text-[11px] text-[#607368]">Manage patient accounts and change the dentist assigned to an appointment.</p>
               </div>
               <div className="flex gap-2">
-                {['Pending', 'Approved', 'Rejected', 'All'].map((f) => (
-                  <button
-                    key={f}
-                    type="button"
-                    onClick={() => setPatientFilter(f)}
-                    className={`px-3 py-1.5 rounded-full text-[11px] font-bold border cursor-pointer ${patientFilter === f ? 'bg-[#164e43] text-white border-[#164e43]' : 'bg-white text-[#40584f] border-[#d4e2dc]'}`}
-                  >
-                    {f === 'Approved' ? 'Accepted' : f}{f === 'Pending' && pendingCount > 0 ? ` (${pendingCount})` : ''}
+                {[['active', 'Active accounts'], ['archived', 'Archived accounts']].map(([tab, label]) => (
+                  <button key={tab} type="button" onClick={() => setPatientFilter(tab)}
+                    className={`rounded-full border px-3 py-1.5 text-[11px] font-bold ${patientFilter === tab ? 'border-[#164e43] bg-[#164e43] text-white' : 'border-[#d4e2dc] bg-white text-[#40584f]'}`}>
+                    {label}
                   </button>
                 ))}
               </div>
             </div>
-            <div className="overflow-x-auto">
-              <table className="w-full text-left border-collapse text-xs">
-                <thead>
-                  <tr className="border-b border-[#d4e2dc] text-[11px] font-bold text-[#607368] uppercase">
-                    <th className="py-3 px-2">Patient</th>
-                    <th className="py-3 px-2">Contact</th>
-                    <th className="py-3 px-2">Birth date / Sex</th>
-                    <th className="py-3 px-2">Address</th>
-                    <th className="py-3 px-2">Status</th>
-                    <th className="py-3 px-2 text-right">Action</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-[#f0f5f2]">
-                  {visiblePatients.map((u) => (
-                    <tr key={u.id} className="hover:bg-[#f8faf9] align-top">
-                      <td className="py-3 px-2"><div className="font-bold text-[#13241b]">{u.full_name}</div><div className="text-[#607368]">@{u.username}</div></td>
-                      <td className="py-3 px-2 text-[#607368]"><div>{u.mobile_number || 'N/A'}</div><div>{u.email || ''}</div></td>
-                      <td className="py-3 px-2 text-[#607368]">{u.birthdate || 'N/A'}{u.sex ? ` · ${u.sex}` : ''}</td>
-                      <td className="py-3 px-2 text-[#607368] max-w-[260px]">{u.complete_address || 'N/A'}</td>
-                      <td className="py-3 px-2">
-                        <span className={`px-2 py-0.5 rounded font-bold text-[10px] uppercase ${statusOf(u) === 'Pending' ? 'bg-amber-100 text-amber-700' : statusOf(u) === 'Rejected' ? 'bg-red-100 text-red-700' : 'bg-emerald-100 text-emerald-700'}`}>
-                          {statusOf(u) === 'Approved' ? 'Accepted' : statusOf(u)}
-                        </span>
-                      </td>
-                      <td className="py-3 px-2 text-right whitespace-nowrap space-x-1.5">
-                        {statusOf(u) !== 'Approved' && (
-                          <button onClick={() => handlePatientDecision(u, 'Approved')} className="bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-1.5 rounded-xl font-bold text-[11px] cursor-pointer">Accept</button>
-                        )}
-                        {statusOf(u) !== 'Rejected' && (
-                          <button onClick={() => handlePatientDecision(u, 'Rejected')} className="bg-white border border-red-200 hover:bg-red-50 text-red-700 px-3 py-1.5 rounded-xl font-bold text-[11px] cursor-pointer">Reject</button>
-                        )}
-                      </td>
+            {loadingStaff ? (
+              <p className="py-6 text-center text-xs font-bold text-[#607368]">Loading patient accounts…</p>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full min-w-[900px] text-left text-xs">
+                  <thead>
+                    <tr className="border-b border-[#d4e2dc] text-[11px] font-bold uppercase text-[#607368]">
+                      <th className="px-2 py-3">Patient</th>
+                      <th className="px-2 py-3">Contact</th>
+                      <th className="px-2 py-3">Birth date / Sex</th>
+                      <th className="px-2 py-3">Appointments</th>
+                      <th className="px-2 py-3">Status</th>
+                      <th className="px-2 py-3 text-right">Actions</th>
                     </tr>
-                  ))}
-                  {visiblePatients.length === 0 && (
-                    <tr><td colSpan="6" className="py-6 text-center text-gray-400 font-medium">No patient accounts in this list.</td></tr>
-                  )}
-                </tbody>
-              </table>
-            </div>
-          </div>
+                  </thead>
+                  <tbody className="divide-y divide-[#f0f5f2]">
+                    {visiblePatients.map((account) => (
+                      <tr key={account.id} className="align-top hover:bg-[#f8faf9]">
+                        <td className="px-2 py-3"><div className="font-bold text-[#13241b]">{account.full_name}</div><div className="text-[#607368]">@{account.username}</div></td>
+                        <td className="px-2 py-3 text-[#607368]"><div>{account.mobile_number || 'N/A'}</div><div>{account.email || ''}</div></td>
+                        <td className="px-2 py-3 text-[#607368]">{account.birthdate || 'N/A'}{account.sex ? ` · ${account.sex}` : ''}</td>
+                        <td className="px-2 py-3">
+                          {appointmentsForPatient(account).length > 0 ? (
+                            <button type="button" onClick={() => openAppointmentDentistModal(account)} className="rounded-lg border border-[#d4e2dc] px-3 py-1.5 font-bold text-[#164e43] hover:bg-[#f5f7f6]">
+                              Manage ({appointmentsForPatient(account).length})
+                            </button>
+                          ) : <span className="text-[#607368]">None</span>}
+                        </td>
+                        <td className="px-2 py-3">
+                          <span className={`rounded px-2 py-0.5 text-[10px] font-bold uppercase ${statusOf(account) === 'Pending' ? 'bg-amber-100 text-amber-700' : statusOf(account) === 'Rejected' ? 'bg-red-100 text-red-700' : 'bg-emerald-100 text-emerald-700'}`}>
+                            {statusOf(account) === 'Approved' ? 'Accepted' : statusOf(account)}
+                          </span>
+                        </td>
+                        <td className="space-x-1.5 whitespace-nowrap px-2 py-3 text-right">
+                          {patientFilter === 'active' && <button type="button" onClick={() => startEditingPatient(account)} className="rounded-lg border border-[#d4e2dc] px-3 py-1.5 font-bold text-[#164e43]">Edit</button>}
+                          {patientFilter === 'active' && statusOf(account) !== 'Approved' && <button type="button" onClick={() => handlePatientDecision(account, 'Approved')} className="rounded-lg bg-emerald-600 px-3 py-1.5 font-bold text-white">Accept</button>}
+                          {patientFilter === 'active' && statusOf(account) === 'Pending' && <button type="button" onClick={() => handlePatientDecision(account, 'Rejected')} className="rounded-lg border border-red-200 px-3 py-1.5 font-bold text-red-700">Reject</button>}
+                          {patientFilter === 'active' && <button type="button" onClick={() => setPatientArchived(account, true)} className="rounded-lg border border-amber-200 px-3 py-1.5 font-bold text-amber-700">Archive</button>}
+                          {patientFilter === 'archived' && <button type="button" onClick={() => setPatientArchived(account, false)} className="rounded-lg border border-emerald-200 px-3 py-1.5 font-bold text-emerald-700">Restore</button>}
+                        </td>
+                      </tr>
+                    ))}
+                    {visiblePatients.length === 0 && <tr><td colSpan="6" className="py-6 text-center font-medium text-gray-400">No {patientFilter} patient accounts.</td></tr>}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </section>
 
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
             <div className="bg-white border border-[#d4e2dc] rounded-2xl p-6 shadow-2xs space-y-4 md:col-span-1">
@@ -843,6 +1024,108 @@ export default function ManagerModule({ services, addService, updateService, del
               <div><label className="mb-1 block font-bold text-[#13241b]">Role *</label><select required value={newStaffRole} onChange={e => setNewStaffRole(e.target.value)} className="w-full rounded-xl border border-[#d4e2dc] bg-[#f5f7f6] p-2.5"><option value="dentist">Dentist</option><option value="assistant">Assistant</option></select></div>
               <button type="submit" className="w-full rounded-xl bg-[#164e43] py-3 font-bold text-white hover:bg-[#0f362e] cursor-pointer">Save Changes</button>
             </form>
+          </div>
+        </div>
+      )}
+
+      {currentView === 'users' && editingPatient && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={() => setEditingPatient(null)}>
+          <div role="dialog" aria-modal="true" aria-labelledby="edit-patient-title" className="max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-2xl bg-white p-6 shadow-xl" onClick={(event) => event.stopPropagation()}>
+            <div className="mb-5 flex items-center justify-between">
+              <div>
+                <h3 id="edit-patient-title" className="font-black text-lg text-[#13241b]">Edit Patient Account</h3>
+                <p className="text-xs text-[#607368]">Update patient account details. Appointment dentists are managed separately.</p>
+              </div>
+              <button type="button" aria-label="Close" onClick={() => setEditingPatient(null)} className="text-xl text-[#607368] cursor-pointer">×</button>
+            </div>
+            <form onSubmit={handleSavePatient} className="grid grid-cols-1 gap-4 text-xs sm:grid-cols-2">
+              <label className="font-bold text-[#13241b]">Full name *
+                <input required value={patientForm.full_name || ''} onChange={(event) => setPatientForm({ ...patientForm, full_name: event.target.value })} className="mt-1 w-full rounded-xl border border-[#d4e2dc] bg-[#f5f7f6] p-2.5 font-normal" />
+              </label>
+              <label className="font-bold text-[#13241b]">Username *
+                <input required value={patientForm.username || ''} onChange={(event) => setPatientForm({ ...patientForm, username: event.target.value })} className="mt-1 w-full rounded-xl border border-[#d4e2dc] bg-[#f5f7f6] p-2.5 font-normal" />
+              </label>
+              <label className="font-bold text-[#13241b]">Email
+                <input type="email" value={patientForm.email || ''} onChange={(event) => setPatientForm({ ...patientForm, email: event.target.value })} className="mt-1 w-full rounded-xl border border-[#d4e2dc] bg-[#f5f7f6] p-2.5 font-normal" />
+              </label>
+              <label className="font-bold text-[#13241b]">Mobile number
+                <input value={patientForm.mobile_number || ''} onChange={(event) => setPatientForm({ ...patientForm, mobile_number: event.target.value })} className="mt-1 w-full rounded-xl border border-[#d4e2dc] bg-[#f5f7f6] p-2.5 font-normal" />
+              </label>
+              <label className="font-bold text-[#13241b]">Birth date
+                <input type="date" value={patientForm.birthdate || ''} onChange={(event) => setPatientForm({ ...patientForm, birthdate: event.target.value })} className="mt-1 w-full rounded-xl border border-[#d4e2dc] bg-[#f5f7f6] p-2.5 font-normal" />
+              </label>
+              <label className="font-bold text-[#13241b]">Sex
+                <input value={patientForm.sex || ''} onChange={(event) => setPatientForm({ ...patientForm, sex: event.target.value })} className="mt-1 w-full rounded-xl border border-[#d4e2dc] bg-[#f5f7f6] p-2.5 font-normal" />
+              </label>
+              <label className="font-bold text-[#13241b] sm:col-span-2">Address
+                <textarea value={patientForm.complete_address || ''} onChange={(event) => setPatientForm({ ...patientForm, complete_address: event.target.value })} rows="2" className="mt-1 w-full rounded-xl border border-[#d4e2dc] bg-[#f5f7f6] p-2.5 font-normal" />
+              </label>
+              <div className="flex gap-3 pt-2 sm:col-span-2">
+                <button type="submit" className="flex-1 rounded-xl bg-[#164e43] py-3 font-bold text-white hover:bg-[#0f362e] cursor-pointer">Save Patient</button>
+                <button type="button" onClick={() => setEditingPatient(null)} className="rounded-xl border border-[#d4e2dc] px-5 py-3 font-bold text-[#40584f] cursor-pointer">Cancel</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {currentView === 'users' && appointmentPatient && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={() => setAppointmentPatient(null)}>
+          <div role="dialog" aria-modal="true" aria-labelledby="appointment-dentist-title" className="max-h-[90vh] w-full max-w-3xl overflow-y-auto rounded-2xl bg-white p-6 shadow-xl" onClick={(event) => event.stopPropagation()}>
+            <div className="mb-5 flex items-center justify-between">
+              <div>
+                <h3 id="appointment-dentist-title" className="font-black text-lg text-[#13241b]">Appointment Dentist</h3>
+                <p className="text-xs text-[#607368]">Choose a dentist for {appointmentPatient.full_name}’s appointments. Each change is saved to Supabase.</p>
+              </div>
+              <button type="button" aria-label="Close" onClick={() => setAppointmentPatient(null)} className="text-xl text-[#607368] cursor-pointer">×</button>
+            </div>
+            {appointmentAssignmentError && (
+              <p role="alert" className="mb-4 rounded-xl border border-red-200 bg-red-50 p-3 text-xs font-bold text-red-800">{appointmentAssignmentError}</p>
+            )}
+            <div className="space-y-3">
+              {appointmentsForPatient(appointmentPatient)
+                .slice()
+                .sort((a, b) => `${a.appointment_date} ${a.appointment_time}`.localeCompare(`${b.appointment_date} ${b.appointment_time}`))
+                .map((appointment) => {
+                  const dentistValue = appointmentDentistDrafts[String(appointment.id)] ?? appointmentAssignments[appointment.id] ?? appointment.assigned_dentist ?? '';
+                  const canReassignDentist = dentistReassignmentStatuses.includes(appointment.status);
+                  return (
+                    <div key={appointment.id} className="grid grid-cols-1 items-end gap-3 rounded-xl border border-[#d4e2dc] bg-[#f8faf9] p-4 sm:grid-cols-[1fr_1.2fr_auto]">
+                      <div>
+                        <p className="font-bold text-[#13241b]">{appointment.appointment_date} · {formatTime(appointment.appointment_time)}</p>
+                        <p className="text-xs text-[#607368]">{appointment.service_name || 'Appointment'} · {appointment.status}</p>
+                        {!canReassignDentist && <p className="mt-1 text-[11px] font-semibold text-amber-800">Dentist changes are locked after treatment starts or the appointment is closed.</p>}
+                      </div>
+                      {canReassignDentist ? (
+                        <>
+                          <label className="text-xs font-bold text-[#13241b]">Assigned dentist
+                            <select value={dentistValue}
+                              onChange={(event) => setAppointmentDentistDrafts((previous) => ({ ...previous, [String(appointment.id)]: event.target.value }))}
+                              className="mt-1 w-full rounded-xl border border-[#d4e2dc] bg-white p-2.5">
+                              <option value="">Unassigned</option>
+                              {staffUsers.filter((staff) => staff.role === 'dentist' && !staff.archived_at).map((dentist) => (
+                                <option key={dentist.id} value={dentist.full_name}>{dentist.full_name}</option>
+                              ))}
+                            </select>
+                          </label>
+                          <button type="button" onClick={() => saveAppointmentDentist(appointment)}
+                            disabled={savingAppointmentId === appointment.id || dentistValue === (appointmentAssignments[appointment.id] ?? appointment.assigned_dentist ?? '')}
+                            className="rounded-xl bg-[#164e43] px-4 py-2.5 text-xs font-bold text-white disabled:cursor-not-allowed disabled:opacity-50">
+                            {savingAppointmentId === appointment.id ? 'Saving…' : 'Save'}
+                          </button>
+                        </>
+                      ) : (
+                        <div className="text-xs">
+                          <p className="font-bold text-[#13241b]">Assigned dentist</p>
+                          <p className="mt-1 rounded-xl border border-[#e4ebe7] bg-gray-100 p-2.5 text-[#607368]">
+                            {appointmentAssignments[appointment.id] ?? appointment.assigned_dentist ?? 'Unassigned'}
+                          </p>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+            </div>
           </div>
         </div>
       )}

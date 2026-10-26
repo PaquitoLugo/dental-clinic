@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
 import { supabase } from '../lib/supabase';
 import PhAddressSelect from './PhAddressSelect';
 import { EMPTY_ADDRESS, buildCompleteAddress } from '../lib/phAddress';
@@ -15,9 +15,14 @@ const ALLOWED_EMAIL_DOMAINS = ['gmail.com', 'yahoo.com', 'outlook.com', 'hotmail
 const INITIAL = {
   firstName: '', middleName: '', lastName: '', birthdate: '', sex: '',
   mobileNumber: '', email: '', username: '', password: '', confirmPassword: '',
+  isGuardian: false, guardianName: '', guardianRelationship: '', guardianContact: '',
 };
 
 const PLACE_REGEX = /^[\p{L}\p{M}0-9\s.,'’\-()\/&]+$/u;
+const normalizeNamePart = (value = '') => value.toLocaleLowerCase().normalize('NFD')
+  .replace(/[\u0300-\u036f]/g, '')
+  .replace(/[^\p{L}\p{N}]/gu, '');
+const patientIdentityKey = (firstName, lastName) => `${normalizeNamePart(firstName)}:${normalizeNamePart(lastName)}`;
 
 export default function RegisterModal({ isOpen, onClose, onSuccess }) {
   const [form, setForm] = useState(INITIAL);
@@ -62,11 +67,12 @@ export default function RegisterModal({ isOpen, onClose, onSuccess }) {
         }
         try {
           const { data, error } = await supabase.from('staff_users').select('id').eq('username', v).limit(1);
+          if (error) return `Could not verify username availability: ${error.message}`;
           if (!error && data && data.length > 0) {
             return 'That username is already taken.';
           }
-        } catch (err) {
-          console.error('Username check error:', err);
+        } catch (error) {
+          return `Could not verify username availability: ${error.message}`;
         }
         return '';
       }
@@ -76,7 +82,7 @@ export default function RegisterModal({ isOpen, onClose, onSuccess }) {
         const limit = new Date();
         limit.setHours(0, 0, 0, 0);
         limit.setFullYear(limit.getFullYear() - 13);
-        if (birthDateObj > limit) return 'You must be at least 13 years old.';
+        if (!allValues.isGuardian && birthDateObj > limit) return 'You must be at least 13 years old.';
         return '';
       }
       case 'sex':
@@ -90,6 +96,11 @@ export default function RegisterModal({ isOpen, onClose, onSuccess }) {
         }
         return '';
       }
+      case 'guardianName':
+      case 'guardianRelationship':
+      case 'guardianContact':
+        if (allValues.isGuardian && !value.trim()) return 'This field is required when registering as a guardian.';
+        return '';
       case 'email': {
         const v = value.trim().toLowerCase();
         if (!v) return ''; // Email is optional, remove if required
@@ -102,11 +113,12 @@ export default function RegisterModal({ isOpen, onClose, onSuccess }) {
         }
         try {
           const { data, error } = await supabase.from('staff_users').select('id').eq('email', v).limit(1);
+          if (error) return `Could not verify email availability: ${error.message}`;
           if (!error && data && data.length > 0) {
             return 'This email address is already registered.';
           }
-        } catch (err) {
-          console.error('Email DB check error:', err);
+        } catch (error) {
+          return `Could not verify email availability: ${error.message}`;
         }
         return '';
       }
@@ -194,7 +206,8 @@ export default function RegisterModal({ isOpen, onClose, onSuccess }) {
     setTouched({
       firstName: true, middleName: true, lastName: true, birthdate: true,
       sex: true, mobileNumber: true, email: true, username: true,
-      password: true, confirmPassword: true,
+      password: true, confirmPassword: true, guardianName: true,
+      guardianRelationship: true, guardianContact: true,
     });
 
     if (Object.keys(newErrors).length > 0 || (!address.regionCode || !address.cityCode || !(address.barangayName || address.barangayCode))) {
@@ -209,6 +222,24 @@ export default function RegisterModal({ isOpen, onClose, onSuccess }) {
       const fullName = [firstName, middleName, lastName].filter(Boolean).join(' ');
       const username = form.username.trim().toLowerCase();
 
+      const { data: existingPatients, error: duplicateCheckError } = await supabase.from('staff_users')
+        .select('id, full_name, first_name, last_name, birthdate')
+        .eq('role', 'patient')
+        .eq('birthdate', form.birthdate);
+      if (duplicateCheckError) throw new Error(`Could not verify whether this patient account already exists: ${duplicateCheckError.message}`);
+
+      const submittedIdentity = patientIdentityKey(firstName, lastName);
+      const duplicatePatient = (existingPatients || []).find((account) => {
+        const nameParts = (account.full_name || '').trim().split(/\s+/);
+        const existingFirstName = account.first_name?.trim() || nameParts[0] || '';
+        const existingLastName = account.last_name?.trim() || nameParts[nameParts.length - 1] || '';
+        return patientIdentityKey(existingFirstName, existingLastName) === submittedIdentity;
+      });
+      if (duplicatePatient) {
+        setGlobalError('A patient account with the same first name, last name, and birth date already exists. Please sign in to the existing account or contact the clinic.');
+        return;
+      }
+
       const { error: insertError } = await supabase.from('staff_users').insert([{
         full_name: fullName,
         first_name: firstName,
@@ -222,6 +253,10 @@ export default function RegisterModal({ isOpen, onClose, onSuccess }) {
         mobile_number: form.mobileNumber.trim(),
         sex: form.sex,
         birthdate: form.birthdate,
+        is_guardian: form.isGuardian,
+        guardian_name: form.isGuardian ? form.guardianName.trim() : null,
+        guardian_relationship: form.isGuardian ? form.guardianRelationship.trim() : null,
+        guardian_contact: form.isGuardian ? form.guardianContact.trim() : null,
         street: address.street.trim(),
         region_code: address.regionCode,
         region_name: address.regionName,
@@ -308,6 +343,77 @@ export default function RegisterModal({ isOpen, onClose, onSuccess }) {
                 {touched.email && errors.email && <p className="text-red-500 text-[10px] mt-1 font-semibold">{errors.email}</p>}
               </div>
             </div>
+          </section>
+
+          <section className={`rounded-2xl border-2 p-4 transition-colors ${form.isGuardian ? 'border-[#164e43] bg-[#eaf4ef] shadow-sm' : 'border-[#164e43] bg-[#f5faf7] shadow-sm'}`}>
+            <label className="flex items-start gap-3 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={form.isGuardian}
+                onChange={(e) => {
+                  const updatedForm = { ...form, isGuardian: e.target.checked };
+                  setForm(updatedForm);
+                  setGlobalError('');
+                  if (touched.birthdate) {
+                    validateField('birthdate', form.birthdate, updatedForm).then((errMsg) => {
+                      setErrors((prev) => ({ ...prev, birthdate: errMsg }));
+                    });
+                  }
+                }}
+                className="mt-0.5 h-5 w-5 shrink-0 cursor-pointer rounded border-gray-400 text-[#164e43] accent-[#164e43]"
+              />
+              <span className="block">
+                <span className="block text-sm font-black uppercase tracking-wide text-[#164e43]">I am a guardian</span>
+                <span className="mt-1 block text-xs font-medium text-[#40584f]">Registering a child or another patient? Select this to add your guardian contact information.</span>
+              </span>
+            </label>
+            {form.isGuardian && (
+              <div className="mt-4 rounded-xl border border-[#bcd7ca] bg-white p-4 space-y-3">
+                <div>
+                  <h4 className="text-xs font-black uppercase tracking-wider text-[#164e43]">Guardian Information</h4>
+                  <p className="text-[11px] text-[#607368] mt-1">Provide your contact information as the patient’s guardian.</p>
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <label className={labelClass}>Guardian full name *</label>
+                    <input
+                      required={form.isGuardian}
+                      autoComplete="name"
+                      className={getInputStyle('guardianName')}
+                      value={form.guardianName}
+                      onChange={handleChange('guardianName')}
+                      onBlur={handleBlur('guardianName')}
+                    />
+                    {touched.guardianName && errors.guardianName && <p className="text-red-500 text-[10px] mt-1 font-semibold">{errors.guardianName}</p>}
+                  </div>
+                  <div>
+                    <label className={labelClass}>Relationship to patient *</label>
+                    <input
+                      required={form.isGuardian}
+                      placeholder="e.g. Parent"
+                      className={getInputStyle('guardianRelationship')}
+                      value={form.guardianRelationship}
+                      onChange={handleChange('guardianRelationship')}
+                      onBlur={handleBlur('guardianRelationship')}
+                    />
+                    {touched.guardianRelationship && errors.guardianRelationship && <p className="text-red-500 text-[10px] mt-1 font-semibold">{errors.guardianRelationship}</p>}
+                  </div>
+                  <div className="sm:col-span-2">
+                    <label className={labelClass}>Guardian contact number *</label>
+                    <input
+                      required={form.isGuardian}
+                      type="tel"
+                      autoComplete="tel"
+                      className={getInputStyle('guardianContact')}
+                      value={form.guardianContact}
+                      onChange={handleChange('guardianContact')}
+                      onBlur={handleBlur('guardianContact')}
+                    />
+                    {touched.guardianContact && errors.guardianContact && <p className="text-red-500 text-[10px] mt-1 font-semibold">{errors.guardianContact}</p>}
+                  </div>
+                </div>
+              </div>
+            )}
           </section>
 
           <section className="space-y-3">

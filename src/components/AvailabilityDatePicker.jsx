@@ -21,7 +21,7 @@ export const formatTime = (t) => {
  *  - availabilityMap: { 'YYYY-MM-DD': { timeIn, timeOut, active } }
  *  - value / onChange: selected date key ('YYYY-MM-DD')
  */
-export default function AvailabilityDatePicker({ availabilityMap = {}, value, onChange }) {
+export default function AvailabilityDatePicker({ availabilityMap = {}, value, onChange, availabilityTimeRange = '' }) {
   const today = new Date();
   const todayKey = toDateKey(today.getFullYear(), today.getMonth(), today.getDate());
 
@@ -56,6 +56,7 @@ export default function AvailabilityDatePicker({ availabilityMap = {}, value, on
       <div className="flex justify-between items-center gap-3">
         <div className="text-xs text-[#607368] font-bold">
           Select one of the highlighted dates. Only days when the dentist is available are shown.
+          {availabilityTimeRange && ` Appointment times: ${availabilityTimeRange}.`}
         </div>
         <div className="flex items-center gap-3 bg-white border border-[#d4e2dc] px-4 py-2 rounded-2xl shadow-2xs shrink-0">
           <button type="button" onClick={prevMonth} disabled={!canGoPrev} className="font-black text-[#164e43] px-2 py-1 hover:bg-[#f5f7f6] rounded-lg cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed">‹</button>
@@ -92,7 +93,7 @@ export default function AvailabilityDatePicker({ availabilityMap = {}, value, on
                 <span className="text-[10px] bg-emerald-200 text-emerald-800 px-1.5 py-0.5 rounded font-bold">{isSelected ? 'Selected' : 'Open'}</span>
               </div>
               <div className="text-[10px] text-[#607368] font-semibold truncate">
-                {formatTime(slot.timeIn)} – {formatTime(slot.timeOut)}
+                {availabilityTimeRange || `${formatTime(slot.timeIn)} – ${formatTime(slot.timeOut)}`}
               </div>
             </button>
           );
