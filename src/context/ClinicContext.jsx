@@ -1,5 +1,6 @@
 import React, { createContext, useState, useEffect } from 'react';
 import { supabase } from '../lib/supabase';
+import { logActivity } from '../lib/activityLog';
 
 export const ClinicContext = createContext();
 
@@ -38,18 +39,25 @@ export function ClinicProvider({ children }) {
   }, []);
 
   const createAppointment = async (apptData) => {
-    const { error } = await supabase.from('appointments').insert([apptData]);
-    if (error) alert('Supabase Error: ' + error.message);
-    else await refreshData();
+    const { data, error } = await supabase.from('appointments').insert([apptData]).select().single();
+    if (error) throw error;
+    await logActivity({
+      actor: { id: apptData.patient_id, name: apptData.patient_name, role: 'patient' },
+      action: 'Appointment requested', targetType: 'appointment', targetId: data.id,
+      details: { date: apptData.appointment_date, time: apptData.appointment_time },
+    });
+    await refreshData();
+    return data;
   };
 
-  const updateAppointmentStatus = async (id, status, queue_number = 0) => {
+  const updateAppointmentStatus = async (id, status, queue_number = 0, extraFields = {}, actor = null) => {
     const { error } = await supabase
       .from('appointments')
-      .update({ status, queue_number })
+      .update({ status, queue_number, ...extraFields })
       .eq('id', id);
-    if (error) alert('Supabase Error: ' + error.message);
-    else await refreshData();
+    if (error) throw error;
+    await logActivity({ actor, action: `Appointment ${status.toLowerCase()}`, targetType: 'appointment', targetId: id, details: extraFields });
+    await refreshData();
   };
 
   // Direct Supabase Insert

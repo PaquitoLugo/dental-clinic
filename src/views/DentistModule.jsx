@@ -8,6 +8,7 @@ import useTreatmentRecords from '../lib/useTreatmentRecords';
 import usePatientContacts from '../lib/usePatientContacts';
 import { belongsToPatient } from '../lib/patientMatch';
 import { isAccountActive } from '../lib/useSessionGuard';
+import useAttendance from '../lib/useAttendance';
 
 // "23:38:00" / "13:00" -> "11:38 PM" / "1:00 PM"
 const formatApptTime = (t) => {
@@ -86,12 +87,7 @@ export default function DentistModule({
   });
   const [scheduleMsg, setScheduleMsg] = useState('');
 
-  // Time-in / Time-out daily attendance record
-  const [attendanceLog, setAttendanceLog] = useState(() => {
-    const todayKey = new Date().toISOString().split('T')[0];
-    const saved = localStorage.getItem(`dentist_attendance_${user?.id || 2}_${todayKey}`);
-    return saved ? JSON.parse(saved) : { timeIn: null, timeOut: null };
-  });
+  const { record: attendanceLog, saving: attendanceSaving, message: attendanceMessage, clockIn, clockOut } = useAttendance(user);
 
   // Archived accounts can't change their schedule or clock in/out (the session guard also signs them out)
   const requireActiveAccount = async () => {
@@ -160,22 +156,16 @@ export default function DentistModule({
   };
 
   const handleClockIn = async () => {
-    if (!(await requireActiveAccount())) return;
-    const nowTime = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: true });
-    const todayKey = new Date().toISOString().split('T')[0];
-    const newLog = { ...attendanceLog, timeIn: nowTime };
-    setAttendanceLog(newLog);
-    localStorage.setItem(`dentist_attendance_${user?.id || 2}_${todayKey}`, JSON.stringify(newLog));
+    if (await requireActiveAccount()) await clockIn();
   };
 
   const handleClockOut = async () => {
-    if (!(await requireActiveAccount())) return;
-    const nowTime = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: true });
-    const todayKey = new Date().toISOString().split('T')[0];
-    const newLog = { ...attendanceLog, timeOut: nowTime };
-    setAttendanceLog(newLog);
-    localStorage.setItem(`dentist_attendance_${user?.id || 2}_${todayKey}`, JSON.stringify(newLog));
+    if (await requireActiveAccount()) await clockOut();
   };
+
+  const formatAttendanceTime = (value) => value
+    ? new Date(value).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })
+    : '—';
 
   // Fetch practitioner profile and PSGC data from Supabase on mount
   useEffect(() => {
@@ -350,14 +340,14 @@ export default function DentistModule({
               <div>
                 <span className="text-[10px] text-[#607368] font-bold uppercase tracking-wider block">Today's Shift</span>
                 <span className="text-xs font-bold text-[#13241b]">
-                  In: {attendanceLog.timeIn || '—'} | Out: {attendanceLog.timeOut || '—'}
+                  In: {formatAttendanceTime(attendanceLog?.clock_in)} | Out: {formatAttendanceTime(attendanceLog?.clock_out)}
                 </span>
               </div>
               <div className="flex gap-2">
                 <button 
                   type="button" 
                   onClick={handleClockIn}
-                  disabled={attendanceLog.timeIn !== null}
+                  disabled={Boolean(attendanceLog?.clock_in) || attendanceSaving}
                   className="bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white px-3 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer shadow-2xs"
                 >
                   Time-In
@@ -365,7 +355,7 @@ export default function DentistModule({
                 <button 
                   type="button" 
                   onClick={handleClockOut}
-                  disabled={attendanceLog.timeIn === null || attendanceLog.timeOut !== null}
+                  disabled={!attendanceLog?.clock_in || Boolean(attendanceLog?.clock_out) || attendanceSaving}
                   className="bg-amber-600 hover:bg-amber-700 disabled:opacity-50 text-white px-3 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer shadow-2xs"
                 >
                   Time-Out
@@ -373,6 +363,7 @@ export default function DentistModule({
               </div>
             </div>
           </div>
+          {attendanceMessage && <p className="text-[11px] font-semibold text-red-700">{attendanceMessage}</p>}
 
           <div className="grid grid-cols-3 gap-6">
             <div className="bg-white border border-[#d4e2dc] rounded-2xl p-6 shadow-2xs">
