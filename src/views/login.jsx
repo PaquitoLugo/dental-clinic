@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import bcrypt from 'bcryptjs';
 import { supabase } from '../lib/supabase';
 import RegisterModal from '../components/RegisterModal';
 
@@ -17,19 +18,31 @@ export default function Login({ onLogin }) {
     setIsLoading(true);
 
     try {
+      // 1. Fetch the account by username only
       const { data, error } = await supabase
         .from('staff_users')
         .select('*')
         .eq('username', username.trim().toLowerCase())
-        .eq('password', password.trim())
-        .single();
+        .maybeSingle();
 
+      // If user doesn't exist or query failed
       if (error || !data) {
         setErrorMsg('Invalid username or password. Please check your credentials.');
-      } else if (data.archived_at) {
+        return;
+      }
+
+      // 2. Compare the entered password with the stored hash
+      const isPasswordValid = await bcrypt.compare(password.trim(), data.password);
+
+      if (!isPasswordValid) {
+        setErrorMsg('Invalid username or password. Please check your credentials.');
+        return;
+      }
+
+      // 3. Handle account status checks
+      if (data.archived_at) {
         setErrorMsg('This account is archived. Please contact the clinic manager for assistance.');
       } else {
-        // Patient accounts must be accepted by the manager first. Existing staff rows have no status (treated as approved).
         const status = data.account_status || 'Approved';
         if (status === 'Pending') {
           setErrorMsg('Your account is still waiting for verification by the clinic manager. Please try again later.');
