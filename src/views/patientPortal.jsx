@@ -105,7 +105,7 @@ export default function PatientPortal({ onLoginClick }) {
         <div className="bg-white border border-[#d4e2dc] rounded-2xl p-8 shadow-2xs space-y-6">
           <div>
             <h2 className="text-3xl font-black text-[#13241b] tracking-tight uppercase">
-              LumiDent Online Appointment Testing
+              LumiDent Online Appointment
             </h2>
             <p className="text-xs text-[#607368] font-medium mt-2">
               Browse our services, create a patient account and, once the clinic has verified it, book your appointment online.
