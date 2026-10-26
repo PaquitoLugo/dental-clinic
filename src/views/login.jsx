@@ -107,8 +107,8 @@ export default function Login({ onLogin }) {
 
       // Send Email via EmailJS
       await emailjs.send(
-        'YOUR_SERVICE_ID',   // Replace with EmailJS Service ID
-        'YOUR_TEMPLATE_ID',  // Replace with EmailJS Template ID
+        'service_0cds2eo',   // Replace with EmailJS Service ID
+        'template_5svch7f',  // Replace with EmailJS Template ID
         {
           to_email: user.email,
           to_name: user.full_name || user.username,
