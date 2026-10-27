@@ -65,14 +65,16 @@ export default function AvailabilityDatePicker({ availabilityMap = {}, value, on
         </div>
       </div>
 
-      <div className="grid grid-cols-7 gap-2 text-center">
-        {WEEK_HEADERS.map((label) => (
-          <div key={label} className="bg-[#f0f5f2] text-[#164e43] py-2 rounded-xl text-xs font-black">{label}</div>
-        ))}
-      </div>
+      <div className="overflow-x-auto pb-2">
+        <div className="min-w-[340px] space-y-2">
+          <div className="grid grid-cols-7 gap-2 text-center">
+            {WEEK_HEADERS.map((label) => (
+              <div key={label} className="bg-[#f0f5f2] text-[#164e43] py-2 rounded-xl text-xs font-black">{label}</div>
+            ))}
+          </div>
 
-      <div className="grid grid-cols-7 gap-2">
-        {cells.map((cell, idx) => {
+          <div className="grid grid-cols-7 gap-2">
+            {cells.map((cell, idx) => {
           if (!cell) return <div key={`empty-${idx}`} className="h-20 bg-gray-50 rounded-xl opacity-40" />;
           const slot = availabilityMap[cell.dateStr];
           if (!isAvailable(cell.dateStr)) {
@@ -97,7 +99,9 @@ export default function AvailabilityDatePicker({ availabilityMap = {}, value, on
               </div>
             </button>
           );
-        })}
+            })}
+          </div>
+        </div>
       </div>
 
       {!hasAnyAvailability && (

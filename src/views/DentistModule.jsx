@@ -708,7 +708,7 @@ export default function DentistModule({
       {/* 2. SCHEDULER & INTERACTIVE CALENDAR VIEW */}
       {currentView === 'scheduler' && (
         <div className="space-y-6">
-          <div className="flex justify-between items-center">
+          <div className="flex flex-wrap justify-between items-start gap-3">
             <div>
               <h2 className="font-black text-2xl text-[#13241b]">Practitioner Availability Calendar</h2>
               <p className="text-xs text-[#607368]">Click any date cell to configure hours, or click weekday headers to apply schedule for the whole month.</p>
@@ -751,30 +751,32 @@ export default function DentistModule({
 
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
             {/* Interactive Calendar Grid */}
-            <div className="lg:col-span-2 bg-white border border-[#d4e2dc] rounded-2xl p-6 shadow-2xs space-y-4">
+            <div className="min-w-0 lg:col-span-2 bg-white border border-[#d4e2dc] rounded-2xl p-4 sm:p-6 shadow-2xs space-y-4">
               <div className="text-xs text-[#607368] font-bold">
                 💡 <span className="underline">Tip:</span> Click a weekday header to schedule current or future dates. Past dates are view-only and show attendance as Present or Absent.
               </div>
 
-              <div className="grid grid-cols-7 gap-2 text-center">
-                {weekHeaderDays.map(wd => (
-                  <button
-                    key={wd.label}
-                    type="button"
-                    onClick={() => handleApplyToAllWeekdayInMonth(wd.index)}
-                    disabled={!calendarCells.some((cell) => cell
-                      && cell.dateStr >= localDateKey()
-                      && new Date(`${cell.dateStr}T00:00:00`).getDay() === wd.index)}
-                    title={`Click to set ${timeInInput} - ${timeOutInput} for all ${wd.label}s in ${MONTHS[calendarMonth]}`}
-                    className="bg-[#f0f5f2] hover:bg-[#164e43] hover:text-white text-[#164e43] py-2 rounded-xl text-xs font-black transition cursor-pointer shadow-2xs disabled:cursor-not-allowed disabled:opacity-40"
-                  >
-                    {wd.label} ↻
-                  </button>
-                ))}
-              </div>
+              <div className="-mx-1 overflow-x-auto pb-2">
+                <div className="min-w-[560px] space-y-3 px-1">
+                  <div className="grid grid-cols-7 gap-2 text-center">
+                    {weekHeaderDays.map(wd => (
+                      <button
+                        key={wd.label}
+                        type="button"
+                        onClick={() => handleApplyToAllWeekdayInMonth(wd.index)}
+                        disabled={!calendarCells.some((cell) => cell
+                          && cell.dateStr >= localDateKey()
+                          && new Date(`${cell.dateStr}T00:00:00`).getDay() === wd.index)}
+                        title={`Click to set ${timeInInput} - ${timeOutInput} for all ${wd.label}s in ${MONTHS[calendarMonth]}`}
+                        className="bg-[#f0f5f2] hover:bg-[#164e43] hover:text-white text-[#164e43] py-2 rounded-xl text-xs font-black transition cursor-pointer shadow-2xs disabled:cursor-not-allowed disabled:opacity-40"
+                      >
+                        {wd.label} ↻
+                      </button>
+                    ))}
+                  </div>
 
-              <div className="grid grid-cols-7 gap-2">
-                {calendarCells.map((cell, idx) => {
+                  <div className="grid grid-cols-7 gap-2">
+                    {calendarCells.map((cell, idx) => {
                   if (!cell) {
                     return <div key={`empty-${idx}`} className="h-20 bg-gray-50 rounded-xl opacity-40"></div>;
                   }
@@ -812,7 +814,9 @@ export default function DentistModule({
                       </div>
                     </div>
                   );
-                })}
+                    })}
+                  </div>
+                </div>
               </div>
             </div>
 
@@ -907,7 +911,7 @@ export default function DentistModule({
             </span>
           </div>
 
-          <div className="grid grid-cols-4 gap-3 bg-white p-4 rounded-2xl border border-[#d4e2dc]">
+          <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3 bg-white p-4 rounded-2xl border border-[#d4e2dc]">
             <div>
               <label className="block text-[11px] font-bold text-[#607368] mb-1">Search Patient</label>
               <input 
@@ -1139,7 +1143,7 @@ export default function DentistModule({
 
           {!isEditingProfile ? (
             <div className="bg-white border border-[#d4e2dc] rounded-2xl p-6 max-w-2xl space-y-4 text-xs shadow-2xs">
-              <div className="grid grid-cols-3 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                 <div>
                   <span className="font-bold text-[#607368] block">First Name:</span>
                   <p className="font-black text-sm text-[#13241b] mt-1">{firstName || 'N/A'}</p>
