@@ -55,20 +55,6 @@ Deno.serve(async (request) => {
   }
 
   try {
-    const forwardedIp = request.headers.get('cf-connecting-ip')
-      || request.headers.get('x-forwarded-for')?.split(',')[0].trim()
-      || `unknown:${identifier}`;
-    const [ipHash, identifierHash] = await Promise.all([
-      hashRateLimitKey(`ip:${forwardedIp}`),
-      hashRateLimitKey(`identifier:${identifier}`),
-    ]);
-    const { data: canAttempt, error: rateLimitError } = await adminClient.rpc('check_staff_login_rate_limit', {
-      p_ip_hash: ipHash,
-      p_identifier_hash: identifierHash,
-    });
-    if (rateLimitError) throw rateLimitError;
-    if (!canAttempt) return jsonResponse({ ok: false, code: 'RATE_LIMITED' });
-
     const { data: byUsername, error: usernameError } = await adminClient
       .from('staff_users')
       .select('id, username, email, password, role, full_name, account_status, archived_at, auth_user_id')
@@ -87,7 +73,22 @@ Deno.serve(async (request) => {
       account = byEmail;
     }
 
-    if (!account) return jsonResponse({ ok: false, code: 'INVALID_CREDENTIALS' });
+    const accountHash = await hashRateLimitKey(account ? `account:${account.id}` : `identifier:${identifier}`);
+    const { data: canAttempt, error: rateLimitError } = await adminClient.rpc('check_staff_login_rate_limit', {
+      p_account_hash: accountHash,
+      p_record_failed_attempt: false,
+    });
+    if (rateLimitError) throw rateLimitError;
+    if (!canAttempt) return jsonResponse({ ok: false, code: 'RATE_LIMITED' });
+
+    if (!account) {
+      const { error: attemptError } = await adminClient.rpc('check_staff_login_rate_limit', {
+        p_account_hash: accountHash,
+        p_record_failed_attempt: true,
+      });
+      if (attemptError) throw attemptError;
+      return jsonResponse({ ok: false, code: 'INVALID_CREDENTIALS' });
+    }
 
     let passwordMatches = false;
     if (typeof account.password === 'string' && account.password.startsWith('$2')) {
@@ -95,7 +96,14 @@ Deno.serve(async (request) => {
     } else {
       passwordMatches = password === account.password;
     }
-    if (!passwordMatches) return jsonResponse({ ok: false, code: 'INVALID_CREDENTIALS' });
+    if (!passwordMatches) {
+      const { data: canContinue, error: attemptError } = await adminClient.rpc('check_staff_login_rate_limit', {
+        p_account_hash: accountHash,
+        p_record_failed_attempt: true,
+      });
+      if (attemptError) throw attemptError;
+      return jsonResponse({ ok: false, code: canContinue ? 'INVALID_CREDENTIALS' : 'RATE_LIMITED' });
+    }
     if (account.archived_at) return jsonResponse({ ok: false, code: 'ARCHIVED' });
 
     const accountStatus = String(account.account_status || 'Approved').toLowerCase();
