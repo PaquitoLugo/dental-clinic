@@ -74,7 +74,6 @@ export default function ManagerModule({ services, addService, updateService, del
   const [loadingStaff, setLoadingStaff] = useState(false);
   const [newDentistName, setNewDentistName] = useState('');
   const [newDentistUsername, setNewDentistUsername] = useState('');
-  const [newDentistPassword, setNewDentistPassword] = useState('');
   const [newDentistEmail, setNewDentistEmail] = useState('');
   const [newStaffRole, setNewStaffRole] = useState('dentist');
   const [editingStaff, setEditingStaff] = useState(null);
@@ -358,7 +357,6 @@ export default function ManagerModule({ services, addService, updateService, del
   const resetStaffForm = () => {
     setNewDentistName('');
     setNewDentistUsername('');
-    setNewDentistPassword('');
     setNewDentistEmail('');
     setNewStaffRole('dentist');
   };
@@ -374,7 +372,6 @@ export default function ManagerModule({ services, addService, updateService, del
         email: newDentistEmail.trim(),
         role: newStaffRole
       };
-      if (newDentistPassword.trim()) account.password = newDentistPassword.trim();
 
       let accountId = editingStaff?.id;
       if (editingStaff) {
@@ -405,7 +402,7 @@ export default function ManagerModule({ services, addService, updateService, del
         } catch (emailError) {
           const { error: cleanupError } = await supabase.from('staff_users').delete().eq('id', createdAccount.id);
           if (cleanupError) {
-            throw new Error(`Account was created, but the credential email failed and cleanup failed. Please edit the account and set a new password. ${emailError.message}`, { cause: emailError });
+            throw new Error(`Account was created, but the credential email and automatic cleanup failed. Please remove the account and retry after resolving the email issue. ${emailError.message}`, { cause: emailError });
           }
           throw new Error(`Credential email failed, so the account was not created. ${emailError.message}`, { cause: emailError });
         }
@@ -432,7 +429,6 @@ export default function ManagerModule({ services, addService, updateService, del
     setEditingStaff(account);
     setNewDentistName(account.full_name || '');
     setNewDentistUsername(account.username || '');
-    setNewDentistPassword('');
     setNewDentistEmail(account.email || '');
     setNewStaffRole(account.role === 'assistant' ? 'assistant' : 'dentist');
     setUserMsg('');
@@ -993,16 +989,7 @@ export default function ManagerModule({ services, addService, updateService, del
                       <label className="block font-bold text-[#13241b] mb-1">Username *</label>
                       <input type="text" required value={newDentistUsername} onChange={e => setNewDentistUsername(e.target.value)} placeholder="drjuan" className="w-full border border-[#d4e2dc] rounded-xl p-2.5 bg-[#f5f7f6]" />
                     </div>
-                    <div>
-                      {editingStaff ? (
-                        <>
-                          <label className="block font-bold text-[#13241b] mb-1">Password (leave blank to keep current)</label>
-                          <input type="password" value={newDentistPassword} onChange={e => setNewDentistPassword(e.target.value)} placeholder="••••••••" className="w-full border border-[#d4e2dc] rounded-xl p-2.5 bg-[#f5f7f6]" />
-                        </>
-                      ) : (
-                        <p className="text-[#607368]">A temporary password will be generated and emailed to the staff member.</p>
-                      )}
-                    </div>
+                    {!editingStaff && <p className="text-[#607368]">A temporary password will be generated and emailed to the staff member.</p>}
                     <div>
                       <label className="block font-bold text-[#13241b] mb-1">Email Address *</label>
                       <input type="email" required value={newDentistEmail} onChange={e => setNewDentistEmail(e.target.value)} placeholder="dentist@clinic.com" className="w-full border border-[#d4e2dc] rounded-xl p-2.5 bg-[#f5f7f6]" />
