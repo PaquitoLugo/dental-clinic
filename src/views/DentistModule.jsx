@@ -66,6 +66,9 @@ export default function DentistModule({
   // Tooth chart: which patient the dentist is charting
   const [chartPatients, setChartPatients] = useState([]);
   const [chartPatientId, setChartPatientId] = useState('');
+  const [chartPatientSearch, setChartPatientSearch] = useState('');
+  const dentistName = `${firstName} ${middleName ? middleName + ' ' : ''}${lastName}`.trim();
+  const scheduleDentistName = user?.name || dentistName;
 
   // Daily Capacity & Scheduler State
   const [maxDailyPatients, setMaxDailyPatients] = useState(10);
@@ -369,21 +372,40 @@ export default function DentistModule({
   // Pre-select the patient who is currently in the chair when the tooth chart opens
   useEffect(() => {
     if (currentView !== 'toothchart' || chartPatientId || chartPatients.length === 0) return;
-    const inChair = appointments.filter(a => a.status === 'In Treatment' && (!a.assigned_dentist || a.assigned_dentist === dentistName));
+    const inChair = appointments.filter(a => a.status === 'In Treatment' && a.assigned_dentist === dentistName);
     const match = chartPatients.find((p) => inChair.some((a) => belongsToPatient(a, p)));
     if (match) setChartPatientId(String(match.id));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentView, chartPatients, appointments]);
+  }, [currentView, chartPatients, appointments, dentistName]);
 
-  // Patients (verified accounts) for the tooth chart
+  // Only list verified patients who have an appointment assigned to this dentist.
   useEffect(() => {
     if (currentView !== 'toothchart' && currentView !== 'logs') return;
-    supabase.from('staff_users').select('id, full_name, account_status, archived_at').eq('role', 'patient').order('full_name')
-      .then(({ data }) => setChartPatients((data || []).filter((p) => !p.archived_at && (p.account_status || 'Approved') === 'Approved')));
-  }, [currentView]);
+    let active = true;
+    const loadAssignedPatients = async () => {
+      const { data, error } = await supabase.from('staff_users')
+        .select('id, full_name, account_status, archived_at')
+        .eq('role', 'patient')
+        .order('full_name');
+      if (!active) return;
+      if (error) {
+        console.error('Could not load assigned dentist patients:', error.message);
+        setChartPatients([]);
+        return;
+      }
+      const verifiedPatients = (data || []).filter((patient) =>
+        !patient.archived_at && (patient.account_status || 'Approved') === 'Approved'
+      );
+      setChartPatients(verifiedPatients.filter((patient) =>
+        appointments.some((appointment) =>
+          appointment.assigned_dentist === dentistName && belongsToPatient(appointment, patient)
+        )
+      ));
+    };
+    loadAssignedPatients();
+    return () => { active = false; };
+  }, [currentView, appointments, dentistName]);
 
-  const dentistName = `${firstName} ${middleName ? middleName + ' ' : ''}${lastName}`.trim();
-  const scheduleDentistName = user?.name || dentistName;
   useEffect(() => {
     if (!scheduleDentistName) return undefined;
     let active = true;
@@ -431,7 +453,7 @@ export default function DentistModule({
       });
     return () => { active = false; };
   }, [calendarYear, calendarMonth, user?.id]);
-  const assignedAppointments = appointments.filter(a => a.assigned_dentist === dentistName || !a.assigned_dentist);
+  const assignedAppointments = appointments.filter(a => a.assigned_dentist === dentistName);
   const totalPatients = assignedAppointments.length;
   const completedPatients = assignedAppointments.filter(a => a.status === 'Completed').length;
 
@@ -439,6 +461,9 @@ export default function DentistModule({
   const isPatientInChair = (patient) => assignedAppointments.some(a => a.status === 'In Treatment' && belongsToPatient(a, patient));
   const inChairNames = [...new Set(assignedAppointments.filter(a => a.status === 'In Treatment').map(a => a.patient_name))];
   const chartPatient = chartPatients.find((p) => String(p.id) === chartPatientId);
+  const filteredChartPatients = chartPatients.filter((patient) =>
+    (patient.full_name || '').toLowerCase().includes(chartPatientSearch.trim().toLowerCase())
+  );
   const chartPatientInChair = !!chartPatient && isPatientInChair(chartPatient);
   // Re-checked against the database right before saving, so a stale screen can't bypass the rule
   const verifyPatientInChair = async () => {
@@ -446,9 +471,10 @@ export default function DentistModule({
     if (attendanceIssue) return attendanceIssue;
     if (!chartPatient) return 'Select a patient first.';
     const { data, error } = await supabase.from('appointments').select('id, patient_id, patient_name, assigned_dentist')
-      .eq('status', 'In Treatment');
+      .eq('status', 'In Treatment')
+      .eq('assigned_dentist', dentistName);
     if (error) return `Could not verify the patient's status: ${error.message}`;
-    const ok = (data || []).some((a) => belongsToPatient(a, chartPatient) && (!a.assigned_dentist || a.assigned_dentist === dentistName));
+    const ok = (data || []).some((a) => belongsToPatient(a, chartPatient));
     return ok ? null : 'This patient is not being treated by you right now. Ask the dental assistant to send them to the chair first.';
   };
   const completionRate = totalPatients > 0 ? Math.round((completedPatients / totalPatients) * 100) : 0;
@@ -1046,15 +1072,24 @@ export default function DentistModule({
             <h2 className="font-black text-2xl text-[#13241b]">Patient Tooth Charts</h2>
             <p className="text-xs text-[#607368]">Record the status of each tooth. Patients can view their own chart (read-only) from their account.</p>
           </div>
-          <div className="bg-white border border-[#d4e2dc] rounded-2xl p-4 max-w-md">
+          <div className="bg-white border border-[#d4e2dc] rounded-2xl p-4 max-w-md space-y-3">
             <label className="block text-[11px] font-bold text-[#607368] mb-1">Patient</label>
+            <input
+              type="search"
+              value={chartPatientSearch}
+              onChange={(event) => setChartPatientSearch(event.target.value)}
+              placeholder="Search patients by name…"
+              aria-label="Search patients by name"
+              className="w-full border border-[#d4e2dc] rounded-xl p-2.5 text-xs bg-white focus:outline-none focus:border-[#164e43]"
+            />
             <select
               value={chartPatientId}
               onChange={(e) => setChartPatientId(e.target.value)}
+              aria-label="Select patient tooth chart"
               className="w-full border border-[#d4e2dc] rounded-xl p-2.5 text-xs bg-white focus:outline-none focus:border-[#164e43]"
             >
-              <option value="">Select a verified patient</option>
-              {chartPatients.map((p) => <option key={p.id} value={p.id}>{p.full_name}{isPatientInChair(p) ? '  ·  In treatment' : ''}</option>)}
+              <option value="">{filteredChartPatients.length ? 'Select a verified patient' : 'No patients match your search'}</option>
+              {filteredChartPatients.map((p) => <option key={p.id} value={p.id}>{p.full_name}{isPatientInChair(p) ? '  ·  In treatment' : ''}</option>)}
             </select>
             <p className="text-[11px] text-[#607368] mt-2">
               {inChairNames.length > 0

@@ -45,6 +45,8 @@ const formatTime = (t) => {
 export default function AssistantModule({ appointments = [], updateAppointmentStatus, refreshData, dentists = [], currentView = 'queue', onViewChange, user, onProfileUpdated }) {
   const [filter, setFilter] = useState('Active');
   const [doctorFilter, setDoctorFilter] = useState('All');
+  const [archiveNameFilter, setArchiveNameFilter] = useState('');
+  const [archiveDateFilter, setArchiveDateFilter] = useState('');
   const [busyId, setBusyId] = useState(null);
   const [overrides, setOverrides] = useState({}); // doctor assigned here before the shared list refreshes
   const [fetchedDentists, setFetchedDentists] = useState([]);
@@ -70,11 +72,13 @@ export default function AssistantModule({ appointments = [], updateAppointmentSt
     cancelClockIn,
     cancelClockOut,
     checkPendingPatients,
+    checkClockedIn,
   } = useAttendance(user, ASSISTANT_WORKING_HOURS);
   const attendanceLog = {
     timeIn: formatClockTime(attendanceRecord?.clock_in),
     timeOut: formatClockTime(attendanceRecord?.clock_out),
   };
+  const assistantOnShift = Boolean(attendanceRecord?.clock_in && !attendanceRecord?.clock_out);
   const todayKey = localDateKey();
   const currentMinutes = new Date().getHours() * 60 + new Date().getMinutes();
   const isArchiveView = currentView === 'archive';
@@ -151,6 +155,19 @@ export default function AssistantModule({ appointments = [], updateAppointmentSt
     if (await isAccountActive(user?.id)) return true;
     await dialog.alert('Your account has been archived, so this action is not allowed.', { title: 'Account archived', variant: 'error' });
     return false;
+  };
+
+  const requireOnShift = async () => {
+    if (!(await requireActiveAccount())) return false;
+    const attendanceIssue = await checkClockedIn();
+    if (attendanceIssue) {
+      await dialog.alert(attendanceIssue, {
+        title: attendanceIssue.toLowerCase().includes('verif') ? 'Attendance unavailable' : 'Time-in required',
+        variant: 'warning',
+      });
+      return false;
+    }
+    return true;
   };
 
   const handleClockIn = async () => {
@@ -253,7 +270,12 @@ export default function AssistantModule({ appointments = [], updateAppointmentSt
 
   const visible = appointments
     .filter((a) => {
-      if (isArchiveView) return a.status === 'Cancelled' && ARCHIVED_APPOINTMENT_REASONS.includes(a.cancellation_reason);
+      if (isArchiveView) {
+        return a.status === 'Cancelled' &&
+          ARCHIVED_APPOINTMENT_REASONS.includes(a.cancellation_reason) &&
+          (a.patient_name || '').toLowerCase().includes(archiveNameFilter.trim().toLowerCase()) &&
+          (!archiveDateFilter || a.appointment_date === archiveDateFilter);
+      }
       if (doctorFilter === UNASSIGNED && doctorOf(a)) return false;
       if (doctorFilter !== 'All' && doctorFilter !== UNASSIGNED && doctorOf(a) !== doctorFilter) return false;
       if (filter === 'All') return true;
@@ -277,6 +299,7 @@ export default function AssistantModule({ appointments = [], updateAppointmentSt
       timeToMinutes(a.appointment_time) + NO_SHOW_GRACE_MINUTES <= currentMinutes);
 
   const run = async (a, status, { confirmText, queue, extra = {} } = {}) => {
+    if (['In Treatment', 'Completed'].includes(status) && !(await requireOnShift())) return;
     if (['In Queue', 'In Treatment'].includes(status) && a.appointment_date !== todayKey) {
       await dialog.alert('Appointments can only be checked in and moved to treatment on their scheduled date.', { title: 'Wrong appointment date', variant: 'warning' });
       return;
@@ -379,6 +402,7 @@ export default function AssistantModule({ appointments = [], updateAppointmentSt
 
   // Only one patient per doctor in the chair. Checked locally and again against the database.
   const sendToChair = async (a) => {
+    if (!(await requireOnShift())) return;
     if (a.appointment_date !== todayKey) {
       await dialog.alert('Appointments can only be checked in and moved to treatment on their scheduled date.', { title: 'Wrong appointment date', variant: 'warning' });
       return;
@@ -402,6 +426,7 @@ export default function AssistantModule({ appointments = [], updateAppointmentSt
 
   // A visit can only be completed once the dentist has issued notes / a prescription.
   const markDone = async (a) => {
+    if (!(await requireOnShift())) return;
     setBusyId(a.id);
     const { data, error } = await supabase
       .from('treatment_records').select('id').eq('appointment_id', String(a.id)).limit(1);
@@ -460,7 +485,14 @@ export default function AssistantModule({ appointments = [], updateAppointmentSt
         return busyWith ? (
           <button disabled title={`${doc} is treating ${busyWith.patient_name}`} className={`${btn} bg-gray-100 text-gray-400 cursor-not-allowed`}>Chair occupied</button>
         ) : (
-          <button disabled={disabled} onClick={() => sendToChair(a)} className={`${btn} bg-amber-50 text-amber-700 hover:bg-amber-600 hover:text-white`}>Send to Chair</button>
+          <button
+            disabled={disabled || attendanceLoading || !assistantOnShift}
+            title={!assistantOnShift ? 'Time in before starting treatment.' : ''}
+            onClick={() => sendToChair(a)}
+            className={`${btn} bg-amber-50 text-amber-700 hover:bg-amber-600 hover:text-white`}
+          >
+            Send to Chair
+          </button>
         );
       }
       case 'In Treatment': {
@@ -468,7 +500,14 @@ export default function AssistantModule({ appointments = [], updateAppointmentSt
         return hasRecord ? (
           <>
             <button onClick={() => setViewing(a)} className={`${btn} bg-white border border-[#d4e2dc] text-[#164e43] hover:bg-[#f5f7f6]`}>View notes</button>
-            <button disabled={disabled} onClick={() => markDone(a)} className={`${btn} bg-green-50 text-green-700 hover:bg-green-600 hover:text-white`}>Mark as Done</button>
+            <button
+              disabled={disabled || attendanceLoading || !assistantOnShift}
+              title={!assistantOnShift ? 'Time in before completing a treatment.' : ''}
+              onClick={() => markDone(a)}
+              className={`${btn} bg-green-50 text-green-700 hover:bg-green-600 hover:text-white`}
+            >
+              Mark as Done
+            </button>
           </>
         ) : (
           <>
@@ -585,7 +624,44 @@ export default function AssistantModule({ appointments = [], updateAppointmentSt
           </span>
         </div>}
       </div>
+      {isArchiveView && (
+        <div className="mb-3 grid grid-cols-1 gap-3 rounded-2xl border border-[#d4e2dc] bg-white p-4 sm:grid-cols-2">
+          <label className="text-[11px] font-bold text-[#607368]">
+            Search by patient name
+            <input
+              type="search"
+              value={archiveNameFilter}
+              onChange={(event) => setArchiveNameFilter(event.target.value)}
+              placeholder="Enter patient name"
+              className="mt-1 w-full rounded-xl border border-[#d4e2dc] bg-white p-2.5 text-xs font-normal text-[#13241b] focus:outline-none focus:border-[#164e43]"
+            />
+          </label>
+          <label className="text-[11px] font-bold text-[#607368]">
+            Filter by appointment date
+            <input
+              type="date"
+              value={archiveDateFilter}
+              onChange={(event) => setArchiveDateFilter(event.target.value)}
+              className="mt-1 w-full rounded-xl border border-[#d4e2dc] bg-white p-2.5 text-xs font-normal text-[#13241b] focus:outline-none focus:border-[#164e43]"
+            />
+          </label>
+          {(archiveNameFilter || archiveDateFilter) && (
+            <button
+              type="button"
+              onClick={() => { setArchiveNameFilter(''); setArchiveDateFilter(''); }}
+              className="justify-self-start rounded-lg border border-[#d4e2dc] px-3 py-1.5 text-[11px] font-bold text-[#164e43] hover:bg-[#f5f7f6]"
+            >
+              Clear filters
+            </button>
+          )}
+        </div>
+      )}
       {!isArchiveView && attendanceMessage && <p role="alert" className="mb-3 text-xs font-semibold text-red-700">{attendanceMessage}</p>}
+      {!isArchiveView && !attendanceLoading && !assistantOnShift && (
+        <p className="mb-3 rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs font-semibold text-amber-800">
+          Time in before starting or completing treatment. Appointment queue and administrative actions remain available.
+        </p>
+      )}
 
       {/* Doctor board: who is in the chair, who is waiting */}
       {!isArchiveView && <div className="flex gap-3 overflow-x-auto pb-3 mb-3">

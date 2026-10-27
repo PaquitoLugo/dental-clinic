@@ -3,6 +3,7 @@ import { supabase } from '../lib/supabase';
 import { recordActivity } from '../lib/activityLog';
 import { localDateKey } from '../lib/dateUtils';
 import ManagerActivityLogs from './ManagerActivityLogs';
+import ManagerUserApprovals from './ManagerUserApprovals';
 
 const startOfWeek = (date) => {
   const start = new Date(date.getFullYear(), date.getMonth(), date.getDate());
@@ -61,6 +62,7 @@ export default function ManagerModule({ services, addService, updateService, del
   const [newStaffRole, setNewStaffRole] = useState('dentist');
   const [editingStaff, setEditingStaff] = useState(null);
   const [staffDirectoryTab, setStaffDirectoryTab] = useState('active');
+  const [userManagementTab, setUserManagementTab] = useState('accounts');
   const [userMsg, setUserMsg] = useState('');
   const [patientFilter, setPatientFilter] = useState('active');
   const [appointmentPatient, setAppointmentPatient] = useState(null);
@@ -234,7 +236,7 @@ export default function ManagerModule({ services, addService, updateService, del
     });
   };
 
-  // Fetch all users when view is 'users'
+  // Fetch the user directory only when it is open.
   useEffect(() => {
     if (currentView === 'users') {
       fetchStaffUsers();
@@ -310,26 +312,6 @@ export default function ManagerModule({ services, addService, updateService, del
       entityId: account.id,
     });
     setUserMsg(`${account.full_name}'s account was ${archived ? 'archived' : 'restored'}.`);
-    await fetchStaffUsers();
-  };
-
-  const handlePatientDecision = async (account, decision) => {
-    const { error } = await supabase.from('staff_users')
-      .update({
-        account_status: decision,
-        verified_at: decision === 'Approved' ? new Date().toISOString() : null,
-      })
-      .eq('id', account.id);
-    if (error) {
-      setUserMsg(`Could not update ${account.full_name}'s account: ${error.message}`);
-      return;
-    }
-    await recordActivity(user, {
-      action: `${decision === 'Approved' ? 'Approved' : 'Rejected'} patient account: ${account.full_name}`,
-      entityType: 'staff_user',
-      entityId: account.id,
-    });
-    setUserMsg(`${account.full_name}'s account was ${decision === 'Approved' ? 'accepted' : 'rejected'}.`);
     await fetchStaffUsers();
   };
 
@@ -760,6 +742,17 @@ export default function ManagerModule({ services, addService, updateService, del
                 {filteredAndSortedServices.length} services
               </span>
             </div>
+            <label className="mb-4 block">
+              <span className="sr-only">Search service catalog</span>
+              <input
+                type="search"
+                value={catalogSearchQuery}
+                onChange={(event) => setCatalogSearchQuery(event.target.value)}
+                placeholder="Search services by name"
+                aria-label="Search services by name"
+                className="w-full rounded-xl border border-[#d4e2dc] bg-white p-3 text-sm focus:outline-none focus:border-[#164e43]"
+              />
+            </label>
             <div className="flex-1 overflow-y-auto pr-1">
               <table className="w-full text-left border-collapse">
                 <thead className="sticky top-0 bg-white z-10">
@@ -782,7 +775,7 @@ export default function ManagerModule({ services, addService, updateService, del
                     </tr>
                   ))}
                   {filteredAndSortedServices.length === 0 && (
-                    <tr><td colSpan="4" className="py-10 text-center text-gray-400 font-medium">No services yet. Add one using the form.</td></tr>
+                    <tr><td colSpan="4" className="py-10 text-center text-gray-400 font-medium">{catalogSearchQuery ? 'No services match your search.' : 'No services yet. Add one using the form.'}</td></tr>
                   )}
                 </tbody>
               </table>
@@ -799,6 +792,29 @@ export default function ManagerModule({ services, addService, updateService, del
             <p className="text-xs text-[#607368]">Provision and manage authorized staff accounts.</p>
           </div>
 
+          <div className="flex gap-2 border-b border-[#d4e2dc] pb-3">
+            {[
+              ['accounts', 'User Management'],
+              ['approvals', 'User Approvals'],
+            ].map(([tab, label]) => (
+              <button
+                key={tab}
+                type="button"
+                onClick={() => setUserManagementTab(tab)}
+                aria-pressed={userManagementTab === tab}
+                className={`rounded-xl px-4 py-2 text-xs font-bold transition ${
+                  userManagementTab === tab ? 'bg-[#164e43] text-white' : 'bg-white text-[#607368] hover:bg-[#f5f7f6]'
+                }`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+
+          {userManagementTab === 'approvals' ? (
+            <ManagerUserApprovals user={user} />
+          ) : (
+          <>
           {userMsg && (
             <div className="bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs p-3.5 rounded-xl font-bold">
               {userMsg}
@@ -854,8 +870,6 @@ export default function ManagerModule({ services, addService, updateService, del
                           </span>
                         </td>
                         <td className="space-x-1.5 whitespace-nowrap px-2 py-3 text-right">
-                          {patientFilter === 'active' && statusOf(account) !== 'Approved' && <button type="button" onClick={() => handlePatientDecision(account, 'Approved')} className="rounded-lg bg-emerald-600 px-3 py-1.5 font-bold text-white">Accept</button>}
-                          {patientFilter === 'active' && statusOf(account) === 'Pending' && <button type="button" onClick={() => handlePatientDecision(account, 'Rejected')} className="rounded-lg border border-red-200 px-3 py-1.5 font-bold text-red-700">Reject</button>}
                           {patientFilter === 'active' && <button type="button" onClick={() => setPatientArchived(account, true)} className="rounded-lg border border-amber-200 px-3 py-1.5 font-bold text-amber-700">Archive</button>}
                           {patientFilter === 'archived' && <button type="button" onClick={() => setPatientArchived(account, false)} className="rounded-lg border border-emerald-200 px-3 py-1.5 font-bold text-emerald-700">Restore</button>}
                         </td>
@@ -960,6 +974,8 @@ export default function ManagerModule({ services, addService, updateService, del
               )}
             </div>
           </div>
+          </>
+          )}
         </div>
       )}
 

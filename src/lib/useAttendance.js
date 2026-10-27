@@ -57,9 +57,9 @@ export default function useAttendance(user, workingHours = { timeIn: '08:00', ti
       setRecord(data || null);
       setMessage('');
       if (!data?.clock_in) {
-        return 'You must time in before using dentist functions.';
+        return 'You must time in before using staff functions.';
       }
-      if (data.clock_out) return 'Your shift is timed out. Time in again before using dentist functions.';
+      if (data.clock_out) return 'Your shift is timed out. Time in again before using staff functions.';
       return null;
     } catch (error) {
       const message = `Attendance verification failed: ${error.message}`;
@@ -93,20 +93,20 @@ export default function useAttendance(user, workingHours = { timeIn: '08:00', ti
   };
 
   const checkCompletedAppointments = async () => {
-    if (user?.role !== 'dentist') return null;
+    if (!['dentist', 'assistant'].includes(user?.role)) return null;
     try {
       let query = supabase.from('appointments')
         .select('id', { count: 'exact', head: true })
         .eq('status', 'Completed')
         .eq('appointment_date', today);
-      if (user.name) query = query.eq('assigned_dentist', user.name);
+      if (user.role === 'dentist' && user.name) query = query.eq('assigned_dentist', user.name);
       const { count, error } = await query;
       if (error) throw error;
       return count
-        ? 'Time-in cannot be cancelled after you have completed an appointment today.'
+        ? 'Time-in cannot be cancelled after a procedure has been completed today.'
         : null;
     } catch (error) {
-      const message = `Could not verify completed appointments: ${error.message}`;
+      const message = `Could not verify completed procedures: ${error.message}`;
       setMessage(message);
       return message;
     }

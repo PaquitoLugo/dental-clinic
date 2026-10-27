@@ -8,6 +8,18 @@ const UPPER = [18, 17, 16, 15, 14, 13, 12, 11, 21, 22, 23, 24, 25, 26, 27, 28];
 const LOWER = [48, 47, 46, 45, 44, 43, 42, 41, 31, 32, 33, 34, 35, 36, 37, 38];
 const SUPERNUMERARY_TYPES = ['Mesiodens', 'Distomolar', 'Paramolar', 'Supplemental tooth', 'Other'];
 const SUPERNUMERARY_LOCATIONS = ['Upper midline', 'Upper right', 'Upper left', 'Lower right', 'Lower left'];
+const QUADRANT_LOCATIONS = SUPERNUMERARY_LOCATIONS.slice(1);
+const FIXED_SUPERNUMERARY_LOCATIONS = { Mesiodens: 'Upper midline' };
+const locationsForSupernumeraryType = (type) =>
+  FIXED_SUPERNUMERARY_LOCATIONS[type]
+    ? [FIXED_SUPERNUMERARY_LOCATIONS[type]]
+    : ['Distomolar', 'Paramolar'].includes(type)
+      ? QUADRANT_LOCATIONS
+      : SUPERNUMERARY_LOCATIONS;
+const defaultLocationForSupernumeraryType = (type, currentLocation = '') => {
+  const locations = locationsForSupernumeraryType(type);
+  return locations.includes(currentLocation) ? currentLocation : locations[0];
+};
 
 export const TOOTH_STATUSES = {
   healthy:         { label: 'Healthy',          fill: '#ffffff', stroke: '#164e43' },
@@ -39,6 +51,14 @@ const toothName = (n) => {
 
 const formatDateTime = (iso) =>
   new Date(iso).toLocaleString('en-PH', { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' });
+
+const chartWriteError = (action, error) => {
+  const message = error?.message || 'Unknown database error.';
+  const guidance = message.toLowerCase().includes('row-level security')
+    ? ' Apply pending Supabase migrations with supabase db push, and confirm the patient has an In Treatment appointment assigned to this dentist.'
+    : '';
+  return `${action}: ${message}.${guidance}`;
+};
 
 const timeAgo = (iso) => {
   const mins = Math.max(0, Math.round((Date.now() - new Date(iso).getTime()) / 60000));
@@ -224,14 +244,19 @@ export default function ToothChart({ patientId, patientName, canEdit = false, ed
     setSelected(n);
     setDraftStatus(chart[n]?.status || 'healthy');
     setDraftNotes(chart[n]?.notes || '');
-    setSupernumeraryType(chart[n]?.tooth_type || SUPERNUMERARY_TYPES[0]);
-    setSupernumeraryLocation(chart[n]?.tooth_location || SUPERNUMERARY_LOCATIONS[0]);
+    const type = chart[n]?.tooth_type || SUPERNUMERARY_TYPES[0];
+    setSupernumeraryType(type);
+    setSupernumeraryLocation(defaultLocationForSupernumeraryType(type, chart[n]?.tooth_location));
     setSavedMsg('');
   };
 
   const supernumeraryTeeth = Object.values(chart)
     .filter((tooth) => String(tooth.tooth_number).startsWith('SUP-'))
     .sort((a, b) => String(a.tooth_number).localeCompare(String(b.tooth_number), undefined, { numeric: true }));
+  const changeSupernumeraryType = (type) => {
+    setSupernumeraryType(type);
+    setSupernumeraryLocation((location) => defaultLocationForSupernumeraryType(type, location));
+  };
 
   const addSupernumerary = async () => {
     if (!canEdit || !patientId || addingSupernumerary) return;
@@ -262,7 +287,7 @@ export default function ToothChart({ patientId, patientName, canEdit = false, ed
       };
       const { error: err } = await supabase.from('tooth_chart').insert(row);
       if (err) {
-        setError(`Could not add the supernumerary tooth: ${err.message}`);
+        setError(chartWriteError('Could not add the supernumerary tooth', err));
         return;
       }
       setChart((prev) => ({ ...prev, [number]: row }));
@@ -293,7 +318,7 @@ export default function ToothChart({ patientId, patientName, canEdit = false, ed
       setSavedMsg(`Supernumerary tooth ${number} added.`);
       setShowSupernumeraryForm(false);
     } catch (err) {
-      setError(`Could not add the supernumerary tooth: ${err.message}`);
+      setError(chartWriteError('Could not add the supernumerary tooth', err));
     } finally {
       setAddingSupernumerary(false);
     }
@@ -333,7 +358,7 @@ export default function ToothChart({ patientId, patientName, canEdit = false, ed
     };
     const { error: err } = await supabase.from('tooth_chart').upsert(row, { onConflict: 'patient_id,tooth_number' });
     if (err) {
-      setError(`Could not save: ${err.message}`);
+      setError(chartWriteError('Could not save the tooth', err));
       setSaving(false);
       return;
     }
@@ -475,15 +500,16 @@ export default function ToothChart({ patientId, patientName, canEdit = false, ed
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <label className="block text-xs font-bold text-[#13241b]">
                 Classification
-                <select value={supernumeraryType} onChange={(e) => setSupernumeraryType(e.target.value)} className="mt-1 w-full rounded-lg border border-[#d4e2dc] bg-white p-2.5 text-xs">
+                <select value={supernumeraryType} onChange={(e) => changeSupernumeraryType(e.target.value)} className="mt-1 w-full rounded-lg border border-[#d4e2dc] bg-white p-2.5 text-xs">
                   {SUPERNUMERARY_TYPES.map((type) => <option key={type} value={type}>{type}</option>)}
                 </select>
               </label>
               <label className="block text-xs font-bold text-[#13241b]">
                 Location
-                <select value={supernumeraryLocation} onChange={(e) => setSupernumeraryLocation(e.target.value)} className="mt-1 w-full rounded-lg border border-[#d4e2dc] bg-white p-2.5 text-xs">
-                  {SUPERNUMERARY_LOCATIONS.map((location) => <option key={location} value={location}>{location}</option>)}
+                <select value={supernumeraryLocation} onChange={(e) => setSupernumeraryLocation(e.target.value)} disabled={Boolean(FIXED_SUPERNUMERARY_LOCATIONS[supernumeraryType])} className="mt-1 w-full rounded-lg border border-[#d4e2dc] bg-white p-2.5 text-xs disabled:bg-gray-100 disabled:text-gray-500">
+                  {locationsForSupernumeraryType(supernumeraryType).map((location) => <option key={location} value={location}>{location}</option>)}
                 </select>
+                {FIXED_SUPERNUMERARY_LOCATIONS[supernumeraryType] && <span className="mt-1 block text-[10px] font-medium text-[#607368]">Mesiodens are classified at the upper midline.</span>}
               </label>
             </div>
             <div className="flex gap-2">
@@ -540,15 +566,16 @@ export default function ToothChart({ patientId, patientName, canEdit = false, ed
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <label className="block text-xs font-bold text-[#13241b]">
                     Classification
-                    <select value={supernumeraryType} onChange={(e) => setSupernumeraryType(e.target.value)} className="mt-1 w-full rounded-lg border border-[#d4e2dc] bg-white p-2.5 text-xs">
+                    <select value={supernumeraryType} onChange={(e) => changeSupernumeraryType(e.target.value)} className="mt-1 w-full rounded-lg border border-[#d4e2dc] bg-white p-2.5 text-xs">
                       {SUPERNUMERARY_TYPES.map((type) => <option key={type} value={type}>{type}</option>)}
                     </select>
                   </label>
                   <label className="block text-xs font-bold text-[#13241b]">
                     Location
-                    <select value={supernumeraryLocation} onChange={(e) => setSupernumeraryLocation(e.target.value)} className="mt-1 w-full rounded-lg border border-[#d4e2dc] bg-white p-2.5 text-xs">
-                      {SUPERNUMERARY_LOCATIONS.map((location) => <option key={location} value={location}>{location}</option>)}
+                    <select value={supernumeraryLocation} onChange={(e) => setSupernumeraryLocation(e.target.value)} disabled={Boolean(FIXED_SUPERNUMERARY_LOCATIONS[supernumeraryType])} className="mt-1 w-full rounded-lg border border-[#d4e2dc] bg-white p-2.5 text-xs disabled:bg-gray-100 disabled:text-gray-500">
+                      {locationsForSupernumeraryType(supernumeraryType).map((location) => <option key={location} value={location}>{location}</option>)}
                     </select>
+                    {FIXED_SUPERNUMERARY_LOCATIONS[supernumeraryType] && <span className="mt-1 block text-[10px] font-medium text-[#607368]">Mesiodens are classified at the upper midline.</span>}
                   </label>
                 </div>
               )}

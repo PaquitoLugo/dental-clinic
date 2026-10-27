@@ -39,8 +39,8 @@ export function ClinicProvider({ children }) {
 
   const createAppointment = async (apptData) => {
     const { error } = await supabase.from('appointments').insert([apptData]);
-    if (error) alert('Supabase Error: ' + error.message);
-    else await refreshData();
+    if (error) throw error;
+    await refreshData();
   };
 
   const updateAppointmentStatus = async (id, status, queue_number = 0, additionalFields = {}) => {

@@ -17,6 +17,12 @@ const slotStart24 = (slot) => {
   const mins = slotToMinutes(slot.split('\u2013')[0]);
   return `${String(Math.floor(mins / 60)).padStart(2, '0')}:${String(mins % 60).padStart(2, '0')}`;
 };
+const timeToMinutes = (value) => {
+  const [hours, minutes] = String(value || '').split(':').map(Number);
+  return Number.isFinite(hours) && Number.isFinite(minutes) ? hours * 60 + minutes : null;
+};
+const minutesToTime = (minutes) =>
+  `${String(Math.floor(minutes / 60)).padStart(2, '0')}:${String(minutes % 60).padStart(2, '0')}`;
 const NON_BLOCKING = ['Rejected', 'Cancelled'];
 
 // Booking is only available to signed-in, verified patients (embedded inside the patient workspace).
@@ -130,11 +136,15 @@ export default function AppointmentRegistrationWizard({
   const pagedServices = filteredServices.slice((servicePage - 1) * servicesPerPage, servicePage * servicesPerPage);
   const selectedTotal = formData.selectedServices.reduce((total, service) => total + Number(service.price || 0), 0);
 
-  const visibleTimeSlots = Array.from({ length: 15 }, (_, index) => {
-    const hour = index + 8;
-    const start = `${String(hour).padStart(2, '0')}:00`;
-    const end = `${String(hour + 1).padStart(2, '0')}:00`;
-    return `${formatTime(start)} – ${formatTime(end)}`;
+  const availableWindow = availabilityMap[formData.appointmentDate];
+  const availabilityStart = timeToMinutes(availableWindow?.timeIn);
+  const availabilityEnd = timeToMinutes(availableWindow?.timeOut);
+  const slotCount = availableWindow?.active && availabilityStart !== null && availabilityEnd !== null
+    ? Math.max(0, Math.floor((availabilityEnd - availabilityStart) / 60))
+    : 0;
+  const visibleTimeSlots = Array.from({ length: slotCount }, (_, index) => {
+    const start = availabilityStart + index * 60;
+    return `${formatTime(minutesToTime(start))} – ${formatTime(minutesToTime(start + 60))}`;
   });
 
   // Slots already taken on the chosen date (anyone's non-rejected appointment) or already past today
@@ -142,7 +152,7 @@ export default function AppointmentRegistrationWizard({
     (existingAppointments || [])
       .filter(a => a.appointment_date === formData.appointmentDate && !NON_BLOCKING.includes(a.status))
       .filter(a => !a.assigned_dentist || a.assigned_dentist === dentistName)
-      .map(a => a.appointment_time)
+      .map(a => String(a.appointment_time || '').slice(0, 5))
   );
   const todayKeyLocal = (() => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; })();
   const nowMinutes = new Date().getHours() * 60 + new Date().getMinutes();
@@ -218,6 +228,10 @@ export default function AppointmentRegistrationWizard({
       setFormError('Please choose an available time slot.');
       return;
     }
+    if (currentStep === 3 && !visibleTimeSlots.includes(formData.appointmentTime)) {
+      setFormError('That time is outside the dentist’s availability. Please choose another slot.');
+      return;
+    }
     if (currentStep === 3 && isSlotUnavailable(formData.appointmentTime)) {
       setFormError('That time slot was just taken. Please choose another one.');
       return;
@@ -257,6 +271,23 @@ export default function AppointmentRegistrationWizard({
     setFormError('');
 
     try {
+      const currentAvailability = await fetchDentistAvailability(dentistName);
+      const selectedWindow = currentAvailability[formData.appointmentDate];
+      const slotStart = timeToMinutes(slotStart24(formData.appointmentTime));
+      const availabilityStart = timeToMinutes(selectedWindow?.timeIn);
+      const availabilityEnd = timeToMinutes(selectedWindow?.timeOut);
+      if (
+        !selectedWindow?.active ||
+        slotStart === null ||
+        availabilityStart === null ||
+        availabilityEnd === null ||
+        slotStart < availabilityStart ||
+        slotStart + 60 > availabilityEnd
+      ) {
+        setFormError('The selected time is no longer within the dentist’s availability. Please choose another available slot.');
+        return;
+      }
+
       // Older accounts may not have the number on the loaded profile, so look it up
       let mobile = patient.mobile_number || '';
       if (!mobile && patient.id) {
@@ -442,7 +473,6 @@ export default function AppointmentRegistrationWizard({
               <AvailabilityDatePicker
                 availabilityMap={availabilityMap}
                 value={formData.appointmentDate}
-                availabilityTimeRange="8:00 AM – 11:00 PM"
                 onChange={(dateKey) => {
                   // changing the date invalidates a previously chosen time
                   setFormData(prev => ({ ...prev, appointmentDate: dateKey, appointmentTime: '' }));
@@ -451,7 +481,7 @@ export default function AppointmentRegistrationWizard({
               />
               {formData.appointmentDate && availabilityMap[formData.appointmentDate] && (
                 <p className="text-xs font-bold text-[#164e43]">
-                  Selected: {formData.appointmentDate} · Appointment times available 8:00 AM – 11:00 PM
+                  Selected: {formData.appointmentDate} · Dentist available {formatTime(availabilityMap[formData.appointmentDate].timeIn)} – {formatTime(availabilityMap[formData.appointmentDate].timeOut)}
                 </p>
               )}
               <div className="flex gap-3 pt-4 border-t border-[#f0f5f2]">
