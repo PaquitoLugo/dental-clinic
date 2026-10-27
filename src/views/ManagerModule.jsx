@@ -1,4 +1,6 @@
 import React, { useState, useEffect } from 'react';
+import bcrypt from 'bcryptjs';
+import emailjs from '@emailjs/browser';
 import { supabase } from '../lib/supabase';
 import { recordActivity } from '../lib/activityLog';
 import { localDateKey } from '../lib/dateUtils';
@@ -26,6 +28,21 @@ const dateKey = (date) => {
 
 const formatTime = (time = '') => time.slice(0, 5);
 const dentistReassignmentStatuses = ['Pending', 'Accepted', 'In Queue'];
+const generateTemporaryPassword = () => {
+  const characterGroups = ['ABCDEFGHJKLMNPQRSTUVWXYZ', 'abcdefghijkmnopqrstuvwxyz', '23456789', '!@#$%&*'];
+  const characters = characterGroups.join('');
+  const randomValues = crypto.getRandomValues(new Uint32Array(32));
+  let randomIndex = 0;
+  const chooseCharacter = (source) => source[randomValues[randomIndex++] % source.length];
+  const passwordCharacters = characterGroups.map(chooseCharacter);
+
+  while (passwordCharacters.length < 16) passwordCharacters.push(chooseCharacter(characters));
+  for (let index = passwordCharacters.length - 1; index > 0; index -= 1) {
+    const swapIndex = randomValues[randomIndex++] % (index + 1);
+    [passwordCharacters[index], passwordCharacters[swapIndex]] = [passwordCharacters[swapIndex], passwordCharacters[index]];
+  }
+  return passwordCharacters.join('');
+};
 
 const appointmentBadgeStyle = {
   Pending: 'bg-gray-100 text-gray-700',
@@ -359,21 +376,50 @@ export default function ManagerModule({ services, addService, updateService, del
       };
       if (newDentistPassword.trim()) account.password = newDentistPassword.trim();
 
-      const query = editingStaff
-        ? supabase.from('staff_users').update(account).eq('id', editingStaff.id)
-        : supabase.from('staff_users').insert([{ ...account, password: newDentistPassword.trim() }]);
-      const { error } = await query;
+      let accountId = editingStaff?.id;
+      if (editingStaff) {
+        const { error } = await supabase.from('staff_users').update(account).eq('id', editingStaff.id);
+        if (error) throw error;
+      } else {
+        const temporaryPassword = generateTemporaryPassword();
+        const passwordHash = await bcrypt.hash(temporaryPassword, 10);
+        const { data: createdAccount, error } = await supabase.from('staff_users')
+          .insert([{ ...account, password: passwordHash }])
+          .select('id')
+          .single();
+        if (error) throw error;
 
-      if (error) throw error;
+        try {
+          await emailjs.send(
+            'service_0cds2eo',
+            'template_ku7y506',
+            {
+              to_email: account.email,
+              to_name: account.full_name,
+              account_status: 'Created',
+              status_message: `Your LumiDent ${account.role} account has been created.\nUsername: ${account.username}\nTemporary password: ${temporaryPassword}\nPlease sign in and keep these credentials private.`,
+              login_url: 'https://lumident-dental-clinic-blue.vercel.app',
+            },
+            'zuGkiLgb_lQ8-D6fJ'
+          );
+        } catch (emailError) {
+          const { error: cleanupError } = await supabase.from('staff_users').delete().eq('id', createdAccount.id);
+          if (cleanupError) {
+            throw new Error(`Account was created, but the credential email failed and cleanup failed. Please edit the account and set a new password. ${emailError.message}`, { cause: emailError });
+          }
+          throw new Error(`Credential email failed, so the account was not created. ${emailError.message}`, { cause: emailError });
+        }
+        accountId = createdAccount.id;
+      }
 
       await recordActivity(user, {
         action: `${editingStaff ? 'Updated' : 'Created'} ${account.role} account: ${account.full_name}`,
         entityType: 'staff_user',
-        entityId: editingStaff?.id,
+        entityId: accountId,
         details: { role: account.role }
       });
 
-      setUserMsg(editingStaff ? 'Staff account updated successfully.' : 'Staff account created successfully.');
+      setUserMsg(editingStaff ? 'Staff account updated successfully.' : `Staff account created and credentials emailed to ${account.email}.`);
       setEditingStaff(null);
       resetStaffForm();
       fetchStaffUsers();
@@ -948,8 +994,14 @@ export default function ManagerModule({ services, addService, updateService, del
                       <input type="text" required value={newDentistUsername} onChange={e => setNewDentistUsername(e.target.value)} placeholder="drjuan" className="w-full border border-[#d4e2dc] rounded-xl p-2.5 bg-[#f5f7f6]" />
                     </div>
                     <div>
-                      <label className="block font-bold text-[#13241b] mb-1">Password {editingStaff ? '(leave blank to keep current)' : '*'}</label>
-                      <input type="password" required={!editingStaff} value={newDentistPassword} onChange={e => setNewDentistPassword(e.target.value)} placeholder="••••••••" className="w-full border border-[#d4e2dc] rounded-xl p-2.5 bg-[#f5f7f6]" />
+                      {editingStaff ? (
+                        <>
+                          <label className="block font-bold text-[#13241b] mb-1">Password (leave blank to keep current)</label>
+                          <input type="password" value={newDentistPassword} onChange={e => setNewDentistPassword(e.target.value)} placeholder="••••••••" className="w-full border border-[#d4e2dc] rounded-xl p-2.5 bg-[#f5f7f6]" />
+                        </>
+                      ) : (
+                        <p className="text-[#607368]">A temporary password will be generated and emailed to the staff member.</p>
+                      )}
                     </div>
                     <div>
                       <label className="block font-bold text-[#13241b] mb-1">Email Address *</label>
