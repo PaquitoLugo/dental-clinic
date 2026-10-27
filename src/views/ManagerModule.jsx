@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 import { supabase } from '../lib/supabase';
 import { recordActivity } from '../lib/activityLog';
 import { localDateKey } from '../lib/dateUtils';
@@ -80,9 +80,9 @@ export default function ManagerModule({ services, addService, updateService, del
   const [price, setPrice] = useState('');
   const [serviceDescription, setServiceDescription] = useState('');
   const [formError, setFormError] = useState('');
-
   const [formEditingId, setFormEditingId] = useState(null);
 
+  // Calendar & Dashboard States
   const [calendarDate, setCalendarDate] = useState(() => new Date());
   const [calendarMode, setCalendarMode] = useState('week');
   const [dashboardPeriod, setDashboardPeriod] = useState('week');
@@ -90,10 +90,12 @@ export default function ManagerModule({ services, addService, updateService, del
   const [staffAttendanceError, setStaffAttendanceError] = useState('');
   const [loadingStaffAttendance, setLoadingStaffAttendance] = useState(true);
 
+  // Catalog Filters
   const [catalogSearchQuery, setCatalogSearchQuery] = useState('');
   const [catalogFilterCategory, setCatalogFilterCategory] = useState('ALL');
   const [catalogSortPrice, setCatalogSortPrice] = useState('');
 
+  // Modal State
   const [modalConfig, setModalConfig] = useState({
     isOpen: false,
     title: '',
@@ -105,12 +107,6 @@ export default function ManagerModule({ services, addService, updateService, del
   const inactiveServices = services.filter(s => s.is_active === false);
   const categoriesFromDb = [...new Set(services.map(s => s.category))].filter(Boolean);
 
-  const availableServicesInCategory = inactiveServices
-    .filter(s => s.category === selectedCategory)
-    .filter((s, i, arr) =>
-      arr.findIndex(x => x.service_name.trim().toLowerCase() === s.service_name.trim().toLowerCase()) === i
-    );
-
   const handleCategoryChange = (e) => {
     const cat = e.target.value;
     setSelectedCategory(cat);
@@ -121,25 +117,6 @@ export default function ManagerModule({ services, addService, updateService, del
       setServiceDescription('');
     }
     setFormError('');
-  };
-
-  const handleServiceChange = (e) => {
-    const val = e.target.value;
-    setFormError('');
-    if (val === 'CUSTOM') {
-      setIsCustomService(true);
-      setSelectedService('');
-      setServiceDescription('');
-    } else {
-      setIsCustomService(false);
-      setSelectedService(val);
-      const matched = inactiveServices.find(s => s.service_name === val);
-      if (matched) {
-        if (matched.price) setPrice(matched.price);
-        if (matched.duration_mins) setDuration(matched.duration_mins);
-        setServiceDescription(matched.service_description || '');
-      }
-    }
   };
 
   const handleSelectServiceToEdit = (s) => {
@@ -236,7 +213,6 @@ export default function ManagerModule({ services, addService, updateService, del
     });
   };
 
-  // Fetch the user directory only when it is open.
   useEffect(() => {
     if (currentView === 'users') {
       fetchStaffUsers();
@@ -392,7 +368,8 @@ export default function ManagerModule({ services, addService, updateService, del
 
       await recordActivity(user, {
         action: `${editingStaff ? 'Updated' : 'Created'} ${account.role} account: ${account.full_name}`,
-        entityType: 'staff_user', entityId: editingStaff?.id,
+        entityType: 'staff_user',
+        entityId: editingStaff?.id,
         details: { role: account.role }
       });
 
@@ -421,12 +398,12 @@ export default function ManagerModule({ services, addService, updateService, del
       .eq('id', account.id);
     if (!error) await recordActivity(user, {
       action: `${archived ? 'Archived' : 'Restored'} staff account: ${account.full_name}`,
-      entityType: 'staff_user', entityId: account.id
+      entityType: 'staff_user',
+      entityId: account.id
     });
     setUserMsg(error ? `Could not ${archived ? 'archive' : 'restore'} account: ${error.message}` : `${account.full_name}'s account was ${archived ? 'archived' : 'restored'}.`);
     fetchStaffUsers();
   };
-
 
   const filteredAndSortedServices = activeServices
     .filter(s => {
@@ -497,6 +474,7 @@ export default function ManagerModule({ services, addService, updateService, del
   return (
     <div className="h-full w-full flex flex-col overflow-hidden font-sans relative">
       
+      {/* Confirmation Modal */}
       {modalConfig.isOpen && (
         <div className="absolute inset-0 bg-black/40 backdrop-blur-2xs z-50 flex items-center justify-center p-4">
           <div className="bg-white border border-[#d4e2dc] rounded-2xl p-6 max-w-sm w-full shadow-xl space-y-4">
@@ -524,6 +502,7 @@ export default function ManagerModule({ services, addService, updateService, del
         </div>
       )}
 
+      {/* DASHBOARD VIEW */}
       {currentView === 'dashboard' && (
         <div className="flex-1 min-h-0 overflow-y-auto space-y-5 p-4 md:p-6">
           <header className="flex flex-wrap items-end justify-between gap-4">
@@ -532,9 +511,18 @@ export default function ManagerModule({ services, addService, updateService, del
               <p className="text-sm text-[#607368]">{dashboardToday.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })} · Financial analytics and clinic performance</p>
             </div>
             <div className="flex rounded-xl border border-[#d4e2dc] bg-white p-1">
-              {['today', 'week', 'month'].map((period, i) => <button key={period} onClick={() => setDashboardPeriod(period)} className={`px-4 py-2 rounded-lg text-sm font-semibold capitalize ${dashboardPeriod === period ? 'bg-[#164e43] text-white' : 'text-[#40564c] hover:bg-[#f5f7f6]'}`}>{['Today', 'This week', 'This month'][i]}</button>)}
+              {['today', 'week', 'month'].map((period, i) => (
+                <button
+                  key={period}
+                  onClick={() => setDashboardPeriod(period)}
+                  className={`px-4 py-2 rounded-lg text-sm font-semibold capitalize ${dashboardPeriod === period ? 'bg-[#164e43] text-white' : 'text-[#40564c] hover:bg-[#f5f7f6]'}`}
+                >
+                  {['Today', 'This week', 'This month'][i]}
+                </button>
+              ))}
             </div>
           </header>
+
           <div className="grid grid-cols-2 xl:grid-cols-5 gap-3">
             <div className="bg-white border border-[#d4e2dc] rounded-2xl p-6 shadow-2xs">
               <p className="text-xs font-bold text-[#607368] uppercase tracking-wider">Completed Revenue</p>
@@ -544,10 +532,20 @@ export default function ManagerModule({ services, addService, updateService, del
               <p className="text-xs font-bold text-[#607368] uppercase tracking-wider">Active Services</p>
               <h3 className="text-3xl font-black text-[#13241b] mt-2">{activeServices.length}</h3>
             </div>
-            <div className="bg-white border border-[#d4e2dc] rounded-2xl p-5"><p className="text-sm text-[#71827c]">Appointments</p><h3 className="text-3xl font-black text-[#164e43] mt-2">{periodAppointments.length}</h3></div>
-            <div className="bg-white border border-[#d4e2dc] rounded-2xl p-5"><p className="text-sm text-[#71827c]">Pending requests</p><h3 className="text-3xl font-black text-[#164e43] mt-2">{periodAppointments.filter(a => a.status === 'Pending').length}</h3></div>
-            <div className="bg-white border border-[#d4e2dc] rounded-2xl p-5"><p className="text-sm text-[#71827c]">In queue now</p><h3 className="text-3xl font-black text-[#164e43] mt-2">{appointments.filter(a => a.appointment_date === todayKey && a.status === 'In Queue').length}</h3></div>
+            <div className="bg-white border border-[#d4e2dc] rounded-2xl p-5">
+              <p className="text-sm text-[#71827c]">Appointments</p>
+              <h3 className="text-3xl font-black text-[#164e43] mt-2">{periodAppointments.length}</h3>
+            </div>
+            <div className="bg-white border border-[#d4e2dc] rounded-2xl p-5">
+              <p className="text-sm text-[#71827c]">Pending requests</p>
+              <h3 className="text-3xl font-black text-[#164e43] mt-2">{periodAppointments.filter(a => a.status === 'Pending').length}</h3>
+            </div>
+            <div className="bg-white border border-[#d4e2dc] rounded-2xl p-5">
+              <p className="text-sm text-[#71827c]">In queue now</p>
+              <h3 className="text-3xl font-black text-[#164e43] mt-2">{appointments.filter(a => a.appointment_date === todayKey && a.status === 'In Queue').length}</h3>
+            </div>
           </div>
+
           <section className="space-y-3">
             <div>
               <h3 className="font-black text-lg text-[#13241b]">Staff attendance</h3>
@@ -569,16 +567,71 @@ export default function ManagerModule({ services, addService, updateService, del
               ))}
             </div>
           </section>
+
           <div className="grid grid-cols-1 xl:grid-cols-[1.4fr_1fr] gap-4">
-            <section className="bg-white border border-[#d4e2dc] rounded-2xl p-5 min-h-[300px]"><h3 className="font-black text-xl mb-5">Revenue trend</h3><div className="h-56 flex items-end justify-around gap-2 border-b border-[#e5ece8]">{chartDays.map((day, i) => <div key={dateKey(day)} className="h-full flex-1 flex flex-col justify-end items-center gap-2 min-w-0"><span className="text-[9px] leading-none font-semibold text-[#607368] whitespace-nowrap" title={`₱${chartValues[i].toLocaleString('en-PH')}`}>₱{new Intl.NumberFormat('en-PH', { notation: 'compact', maximumFractionDigits: 1 }).format(chartValues[i])}</span><div title={`₱${chartValues[i].toLocaleString('en-PH')}`} className={`w-full max-w-14 rounded-t-lg border border-[#407368] ${dateKey(day) === todayKey ? 'bg-[#164e43]' : 'bg-[#e2eee9]'}`} style={{ height: `${chartValues[i] ? Math.max((chartValues[i] / chartMax) * 68, 8) : 0}%` }} /><span className="text-xs text-[#71827c]">{dashboardPeriod === 'today' ? 'Today' : dashboardPeriod === 'month' ? day.getDate() : day.toLocaleDateString('en-US', { weekday: 'short' })}</span></div>)}</div></section>
-            <section className="bg-white border border-[#d4e2dc] rounded-2xl p-5"><h3 className="font-black text-xl mb-4">Today’s schedule</h3><div className="divide-y divide-[#dce6e2]">{todaySchedule.length ? todaySchedule.map(a => <div key={a.id} className="py-3 flex items-center gap-3"><span className="text-sm text-[#71827c] w-14 shrink-0">{formatTime(a.appointment_time)}</span><div className="min-w-0 flex-1"><p className="font-bold truncate">{a.patient_name || 'Patient'}</p><p className="text-sm text-[#71827c] truncate">{a.service_name || 'Appointment'}{a.assigned_dentist ? ` · Dr. ${a.assigned_dentist}` : ''}</p></div><span className={`px-2.5 py-1 rounded-md text-[11px] font-bold ${appointmentBadgeStyle[a.status] || 'bg-gray-100 text-gray-700'}`}>{a.status}</span></div>) : <p className="py-8 text-sm text-[#71827c]">No appointments scheduled today.</p>}</div></section>
+            <section className="bg-white border border-[#d4e2dc] rounded-2xl p-5 min-h-[300px]">
+              <h3 className="font-black text-xl mb-5">Revenue trend</h3>
+              <div className="h-56 flex items-end justify-around gap-2 border-b border-[#e5ece8]">
+                {chartDays.map((day, i) => (
+                  <div key={dateKey(day)} className="h-full flex-1 flex flex-col justify-end items-center gap-2 min-w-0">
+                    <span className="text-[9px] leading-none font-semibold text-[#607368] whitespace-nowrap" title={`₱${chartValues[i].toLocaleString('en-PH')}`}>
+                      ₱{new Intl.NumberFormat('en-PH', { notation: 'compact', maximumFractionDigits: 1 }).format(chartValues[i])}
+                    </span>
+                    <div
+                      title={`₱${chartValues[i].toLocaleString('en-PH')}`}
+                      className={`w-full max-w-14 rounded-t-lg border border-[#407368] ${dateKey(day) === todayKey ? 'bg-[#164e43]' : 'bg-[#e2eee9]'}`}
+                      style={{ height: `${chartValues[i] ? Math.max((chartValues[i] / chartMax) * 68, 8) : 0}%` }}
+                    />
+                    <span className="text-xs text-[#71827c]">
+                      {dashboardPeriod === 'today' ? 'Today' : dashboardPeriod === 'month' ? day.getDate() : day.toLocaleDateString('en-US', { weekday: 'short' })}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </section>
+
+            <section className="bg-white border border-[#d4e2dc] rounded-2xl p-5">
+              <h3 className="font-black text-xl mb-4">Today’s schedule</h3>
+              <div className="divide-y divide-[#dce6e2]">
+                {todaySchedule.length ? todaySchedule.map(a => (
+                  <div key={a.id} className="py-3 flex items-center gap-3">
+                    <span className="text-sm text-[#71827c] w-14 shrink-0">{formatTime(a.appointment_time)}</span>
+                    <div className="min-w-0 flex-1">
+                      <p className="font-bold truncate">{a.patient_name || 'Patient'}</p>
+                      <p className="text-sm text-[#71827c] truncate">{a.service_name || 'Appointment'}{a.assigned_dentist ? ` · Dr. ${a.assigned_dentist}` : ''}</p>
+                    </div>
+                    <span className={`px-2.5 py-1 rounded-md text-[11px] font-bold ${appointmentBadgeStyle[a.status] || 'bg-gray-100 text-gray-700'}`}>
+                      {a.status}
+                    </span>
+                  </div>
+                )) : <p className="py-8 text-sm text-[#71827c]">No appointments scheduled today.</p>}
+              </div>
+            </section>
           </div>
-          <section className="bg-white border border-[#d4e2dc] rounded-2xl p-5"><h3 className="font-black text-xl mb-4">Top services</h3>{topServices.length ? <div className="space-y-3">{topServices.map(([name, count]) => <div key={name} className="grid grid-cols-[minmax(120px,180px)_1fr_24px] items-center gap-3"><span className="truncate text-sm">{name}</span><div className="h-3 rounded-full bg-[#e2eee9] overflow-hidden"><div className="h-full rounded-full bg-[#164e43]" style={{ width: `${(count / topServices[0][1]) * 100}%` }} /></div><span className="text-sm font-bold">{count}</span></div>)}</div> : <p className="text-sm text-[#71827c]">No appointments in this period.</p>}</section>
+
+          <section className="bg-white border border-[#d4e2dc] rounded-2xl p-5">
+            <h3 className="font-black text-xl mb-4">Top services</h3>
+            {topServices.length ? (
+              <div className="space-y-3">
+                {topServices.map(([name, count]) => (
+                  <div key={name} className="grid grid-cols-[minmax(120px,180px)_1fr_24px] items-center gap-3">
+                    <span className="truncate text-sm">{name}</span>
+                    <div className="h-3 rounded-full bg-[#e2eee9] overflow-hidden">
+                      <div className="h-full rounded-full bg-[#164e43]" style={{ width: `${(count / topServices[0][1]) * 100}%` }} />
+                    </div>
+                    <span className="text-sm font-bold">{count}</span>
+                  </div>
+                ))}
+              </div>
+            ) : <p className="text-sm text-[#71827c]">No appointments in this period.</p>}
+          </section>
         </div>
       )}
 
+      {/* ACTIVITY LOGS VIEW */}
       {currentView === 'activity' && <ManagerActivityLogs />}
 
+      {/* MASTER CALENDAR VIEW */}
       {currentView === 'calendar' && (
         <section className="h-full min-h-0 flex flex-col gap-4 overflow-hidden p-2" aria-label="Master appointment calendar">
           <header className="flex flex-wrap items-center justify-between gap-4">
@@ -665,9 +718,10 @@ export default function ManagerModule({ services, addService, updateService, del
         </section>
       )}
 
+      {/* SERVICES MANAGEMENT VIEW */}
       {currentView === 'services' && (
         <div className="h-full grid grid-cols-12 gap-8 overflow-hidden p-2">
-          {/* Left Form: Add / Edit Service (fills the full height of the card) */}
+          {/* Form Side */}
           <div className="col-span-5 bg-white border border-[#d4e2dc] rounded-3xl p-8 shadow-2xs overflow-y-auto flex flex-col">
             <div className="mb-6">
               <h3 className="font-black text-2xl text-[#13241b]">
@@ -696,7 +750,6 @@ export default function ManagerModule({ services, addService, updateService, del
                 <input type="text" required value={customServiceName} onChange={e => setCustomServiceName(e.target.value)} placeholder="Service Name" className="w-full border border-[#d4e2dc] rounded-2xl p-4 text-sm bg-[#f5f7f6] font-bold focus:outline-none focus:border-[#164e43]" />
               </div>
 
-              {/* Description grows to take all the remaining space */}
               <div className="flex-1 flex flex-col min-h-[160px]">
                 <label className="block text-sm font-bold text-[#164e43] mb-2">Service Description</label>
                 <textarea
@@ -731,7 +784,7 @@ export default function ManagerModule({ services, addService, updateService, del
             </form>
           </div>
 
-          {/* Right Catalog Table */}
+          {/* Catalog Side */}
           <div className="col-span-7 bg-white border border-[#d4e2dc] rounded-3xl p-8 shadow-2xs flex flex-col overflow-hidden">
             <div className="flex justify-between items-end mb-5">
               <div>
@@ -784,12 +837,12 @@ export default function ManagerModule({ services, addService, updateService, del
         </div>
       )}
 
-      {/* USER MANAGEMENT & DENTIST REGISTRATION VIEW */}
+      {/* USER & ROLE MANAGEMENT VIEW */}
       {currentView === 'users' && (
         <div className="flex-1 overflow-y-auto space-y-6 p-2">
           <div>
             <h2 className="font-black text-2xl text-[#13241b]">User & Role Management</h2>
-            <p className="text-xs text-[#607368]">Provision and manage authorized staff accounts.</p>
+            <p className="text-xs text-[#607368]">Provision and manage authorized staff and patient accounts.</p>
           </div>
 
           <div className="flex gap-2 border-b border-[#d4e2dc] pb-3">
@@ -814,171 +867,172 @@ export default function ManagerModule({ services, addService, updateService, del
           {userManagementTab === 'approvals' ? (
             <ManagerUserApprovals user={user} />
           ) : (
-          <>
-          {userMsg && (
-            <div className="bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs p-3.5 rounded-xl font-bold">
-              {userMsg}
-            </div>
-          )}
-
-          <section className="bg-white border border-[#d4e2dc] rounded-2xl p-6 shadow-2xs space-y-4">
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <div>
-                <h3 className="font-black text-base text-[#13241b]">Patient User Management</h3>
-                <p className="text-[11px] text-[#607368]">Manage patient accounts and change the dentist assigned to an appointment.</p>
-              </div>
-              <div className="flex gap-2">
-                {[['active', 'Active accounts'], ['archived', 'Archived accounts']].map(([tab, label]) => (
-                  <button key={tab} type="button" onClick={() => setPatientFilter(tab)}
-                    className={`rounded-full border px-3 py-1.5 text-[11px] font-bold ${patientFilter === tab ? 'border-[#164e43] bg-[#164e43] text-white' : 'border-[#d4e2dc] bg-white text-[#40584f]'}`}>
-                    {label}
-                  </button>
-                ))}
-              </div>
-            </div>
-            {loadingStaff ? (
-              <p className="py-6 text-center text-xs font-bold text-[#607368]">Loading patient accounts…</p>
-            ) : (
-              <div className="overflow-x-auto">
-                <table className="w-full min-w-[900px] text-left text-xs">
-                  <thead>
-                    <tr className="border-b border-[#d4e2dc] text-[11px] font-bold uppercase text-[#607368]">
-                      <th className="px-2 py-3">Patient</th>
-                      <th className="px-2 py-3">Contact</th>
-                      <th className="px-2 py-3">Birth date / Sex</th>
-                      <th className="px-2 py-3">Appointments</th>
-                      <th className="px-2 py-3">Status</th>
-                      <th className="px-2 py-3 text-right">Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-[#f0f5f2]">
-                    {visiblePatients.map((account) => (
-                      <tr key={account.id} className="align-top hover:bg-[#f8faf9]">
-                        <td className="px-2 py-3"><div className="font-bold text-[#13241b]">{account.full_name}</div><div className="text-[#607368]">@{account.username}</div></td>
-                        <td className="px-2 py-3 text-[#607368]"><div>{account.mobile_number || 'N/A'}</div><div>{account.email || ''}</div></td>
-                        <td className="px-2 py-3 text-[#607368]">{account.birthdate || 'N/A'}{account.sex ? ` · ${account.sex}` : ''}</td>
-                        <td className="px-2 py-3">
-                          {appointmentsForPatient(account).length > 0 ? (
-                            <button type="button" onClick={() => openAppointmentDentistModal(account)} className="rounded-lg border border-[#d4e2dc] px-3 py-1.5 font-bold text-[#164e43] hover:bg-[#f5f7f6]">
-                              Manage ({appointmentsForPatient(account).length})
-                            </button>
-                          ) : <span className="text-[#607368]">None</span>}
-                        </td>
-                        <td className="px-2 py-3">
-                          <span className={`rounded px-2 py-0.5 text-[10px] font-bold uppercase ${statusOf(account) === 'Pending' ? 'bg-amber-100 text-amber-700' : statusOf(account) === 'Rejected' ? 'bg-red-100 text-red-700' : 'bg-emerald-100 text-emerald-700'}`}>
-                            {statusOf(account) === 'Approved' ? 'Accepted' : statusOf(account)}
-                          </span>
-                        </td>
-                        <td className="space-x-1.5 whitespace-nowrap px-2 py-3 text-right">
-                          {patientFilter === 'active' && <button type="button" onClick={() => setPatientArchived(account, true)} className="rounded-lg border border-amber-200 px-3 py-1.5 font-bold text-amber-700">Archive</button>}
-                          {patientFilter === 'archived' && <button type="button" onClick={() => setPatientArchived(account, false)} className="rounded-lg border border-emerald-200 px-3 py-1.5 font-bold text-emerald-700">Restore</button>}
-                        </td>
-                      </tr>
-                    ))}
-                    {visiblePatients.length === 0 && <tr><td colSpan="6" className="py-6 text-center font-medium text-gray-400">No {patientFilter} patient accounts.</td></tr>}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </section>
-
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-            <div className="bg-white border border-[#d4e2dc] rounded-2xl p-6 shadow-2xs space-y-4 md:col-span-1">
-              <h3 className="font-black text-base text-[#13241b]">Register Staff Account</h3>
-              <form onSubmit={handleRegisterDentist} className="space-y-3 text-xs">
-                <div>
-                  <label className="block font-bold text-[#13241b] mb-1">Full Name *</label>
-                  <input type="text" required value={newDentistName} onChange={e => setNewDentistName(e.target.value)} placeholder="Dr. Juan Dela Cruz" className="w-full border border-[#d4e2dc] rounded-xl p-2.5 bg-[#f5f7f6]" />
-                </div>
-                <div>
-                  <label className="block font-bold text-[#13241b] mb-1">Username *</label>
-                  <input type="text" required value={newDentistUsername} onChange={e => setNewDentistUsername(e.target.value)} placeholder="drjuan" className="w-full border border-[#d4e2dc] rounded-xl p-2.5 bg-[#f5f7f6]" />
-                </div>
-                <div>
-                  <label className="block font-bold text-[#13241b] mb-1">Password {editingStaff ? '(leave blank to keep current)' : '*'}</label>
-                  <input type="password" required={!editingStaff} value={newDentistPassword} onChange={e => setNewDentistPassword(e.target.value)} placeholder="••••••••" className="w-full border border-[#d4e2dc] rounded-xl p-2.5 bg-[#f5f7f6]" />
-                </div>
-                <div>
-                  <label className="block font-bold text-[#13241b] mb-1">Email Address *</label>
-                  <input type="email" required value={newDentistEmail} onChange={e => setNewDentistEmail(e.target.value)} placeholder="dentist@clinic.com" className="w-full border border-[#d4e2dc] rounded-xl p-2.5 bg-[#f5f7f6]" />
-                </div>
-                <div>
-                  <label className="block font-bold text-[#13241b] mb-1">Role *</label>
-                  <select required value={newStaffRole} onChange={e => setNewStaffRole(e.target.value)} className="w-full border border-[#d4e2dc] rounded-xl p-2.5 bg-[#f5f7f6]">
-                    <option value="dentist">Dentist</option>
-                    <option value="assistant">Assistant</option>
-                  </select>
-                </div>
-                <button type="submit" className="w-full bg-[#164e43] text-white py-3 rounded-xl font-bold hover:bg-[#0f362e] transition cursor-pointer mt-2">
-                  {editingStaff ? 'Save Changes' : 'Add Account'}
-                </button>
-                {editingStaff && <button type="button" onClick={() => { setEditingStaff(null); resetStaffForm(); }} className="w-full border border-[#d4e2dc] text-[#40584f] py-2.5 rounded-xl font-bold cursor-pointer">Cancel Edit</button>}
-              </form>
-            </div>
-
-            <div className="bg-white border border-[#d4e2dc] rounded-2xl p-6 shadow-2xs md:col-span-2 overflow-hidden flex flex-col">
-              <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
-                <h3 className="font-black text-base text-[#13241b]">Staff Accounts Directory</h3>
-                <div className="flex gap-2">
-                  {[['active', 'Active Accounts'], ['archived', 'Archived Accounts']].map(([tab, label]) => (
-                    <button key={tab} type="button" onClick={() => setStaffDirectoryTab(tab)} className={`rounded-full border px-3 py-1.5 text-[11px] font-bold cursor-pointer ${staffDirectoryTab === tab ? 'border-[#164e43] bg-[#164e43] text-white' : 'border-[#d4e2dc] bg-white text-[#40584f]'}`}>
-                      {label}
-                    </button>
-                  ))}
-                </div>
-              </div>
-              {loadingStaff ? (
-                <div className="py-8 text-center text-xs font-bold text-[#607368]">Loading user accounts...</div>
-              ) : (
-                <div className="flex-1 overflow-y-auto">
-                  <table className="w-full text-left border-collapse text-xs">
-                    <thead>
-                      <tr className="border-b border-[#d4e2dc] text-[11px] font-bold text-[#607368] uppercase">
-                        <th className="py-3 px-2">Name</th>
-                        <th className="py-3 px-2">Username</th>
-                        <th className="py-3 px-2">Role</th>
-                        <th className="py-3 px-2">Email</th>
-                        <th className="py-3 px-2 text-right">Actions</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-[#f0f5f2]">
-                      {staffUsers.filter(u => u.role !== 'patient' && (staffDirectoryTab === 'archived' ? Boolean(u.archived_at) : !u.archived_at)).map(u => (
-                        <tr key={u.id} className="hover:bg-[#f8faf9]">
-                          <td className="py-3 px-2 font-bold text-[#13241b]">{u.full_name}</td>
-                          <td className="py-3 px-2 text-[#607368]">{u.username}</td>
-                          <td className="py-3 px-2">
-                            <span className={`px-2 py-0.5 rounded font-bold text-[10px] uppercase ${
-                              u.role === 'manager' ? 'bg-purple-100 text-purple-700' :
-                              u.role === 'dentist' ? 'bg-emerald-100 text-emerald-700' :
-                              u.role === 'assistant' ? 'bg-blue-100 text-blue-700' : 'bg-gray-100 text-gray-700'
-                            }`}>
-                              {u.role}
-                            </span>
-                          </td>
-                          <td className="py-3 px-2 text-[#607368]">{u.email || 'N/A'}</td>
-                          <td className="py-3 px-2 text-right">
-                            <div className="flex justify-end gap-2">
-                              {staffDirectoryTab === 'active' && (u.role === 'dentist' || u.role === 'assistant') && <button type="button" onClick={() => startEditingStaff(u)} className="border border-[#d4e2dc] hover:bg-[#f5f7f6] text-[#164e43] px-3 py-1.5 rounded-lg font-bold cursor-pointer">Edit</button>}
-                              {staffDirectoryTab === 'active' && u.role !== 'manager' && <button type="button" onClick={() => setStaffArchived(u, true)} className="border border-amber-200 hover:bg-amber-50 text-amber-700 px-3 py-1.5 rounded-lg font-bold cursor-pointer">Archive</button>}
-                              {staffDirectoryTab === 'archived' && <button type="button" onClick={() => setStaffArchived(u, false)} className="border border-emerald-200 hover:bg-emerald-50 text-emerald-700 px-3 py-1.5 rounded-lg font-bold cursor-pointer">Restore</button>}
-                            </div>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                  {staffUsers.filter(u => u.role !== 'patient' && (staffDirectoryTab === 'archived' ? Boolean(u.archived_at) : !u.archived_at)).length === 0 && (
-                    <p className="py-6 text-center text-xs font-medium text-gray-400">No {staffDirectoryTab === 'archived' ? 'archived' : 'active'} staff accounts.</p>
-                  )}
+            <>
+              {userMsg && (
+                <div className="bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs p-3.5 rounded-xl font-bold">
+                  {userMsg}
                 </div>
               )}
-            </div>
-          </div>
-          </>
+
+              <section className="bg-white border border-[#d4e2dc] rounded-2xl p-6 shadow-2xs space-y-4">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div>
+                    <h3 className="font-black text-base text-[#13241b]">Patient User Management</h3>
+                    <p className="text-[11px] text-[#607368]">Manage patient accounts and change the dentist assigned to an appointment.</p>
+                  </div>
+                  <div className="flex gap-2">
+                    {[['active', 'Active accounts'], ['archived', 'Archived accounts']].map(([tab, label]) => (
+                      <button key={tab} type="button" onClick={() => setPatientFilter(tab)}
+                        className={`rounded-full border px-3 py-1.5 text-[11px] font-bold ${patientFilter === tab ? 'border-[#164e43] bg-[#164e43] text-white' : 'border-[#d4e2dc] bg-white text-[#40584f]'}`}>
+                        {label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                {loadingStaff ? (
+                  <p className="py-6 text-center text-xs font-bold text-[#607368]">Loading patient accounts…</p>
+                ) : (
+                  <div className="overflow-x-auto">
+                    <table className="w-full min-w-[900px] text-left text-xs">
+                      <thead>
+                        <tr className="border-b border-[#d4e2dc] text-[11px] font-bold uppercase text-[#607368]">
+                          <th className="px-2 py-3">Patient</th>
+                          <th className="px-2 py-3">Contact</th>
+                          <th className="px-2 py-3">Birth date / Sex</th>
+                          <th className="px-2 py-3">Appointments</th>
+                          <th className="px-2 py-3">Status</th>
+                          <th className="px-2 py-3 text-right">Actions</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-[#f0f5f2]">
+                        {visiblePatients.map((account) => (
+                          <tr key={account.id} className="align-top hover:bg-[#f8faf9]">
+                            <td className="px-2 py-3"><div className="font-bold text-[#13241b]">{account.full_name}</div><div className="text-[#607368]">@{account.username}</div></td>
+                            <td className="px-2 py-3 text-[#607368]"><div>{account.mobile_number || 'N/A'}</div><div>{account.email || ''}</div></td>
+                            <td className="px-2 py-3 text-[#607368]">{account.birthdate || 'N/A'}{account.sex ? ` · ${account.sex}` : ''}</td>
+                            <td className="px-2 py-3">
+                              {appointmentsForPatient(account).length > 0 ? (
+                                <button type="button" onClick={() => openAppointmentDentistModal(account)} className="rounded-lg border border-[#d4e2dc] px-3 py-1.5 font-bold text-[#164e43] hover:bg-[#f5f7f6]">
+                                  Manage ({appointmentsForPatient(account).length})
+                                </button>
+                              ) : <span className="text-[#607368]">None</span>}
+                            </td>
+                            <td className="px-2 py-3">
+                              <span className={`rounded px-2 py-0.5 text-[10px] font-bold uppercase ${statusOf(account) === 'Pending' ? 'bg-amber-100 text-amber-700' : statusOf(account) === 'Rejected' ? 'bg-red-100 text-red-700' : 'bg-emerald-100 text-emerald-700'}`}>
+                                {statusOf(account) === 'Approved' ? 'Accepted' : statusOf(account)}
+                              </span>
+                            </td>
+                            <td className="space-x-1.5 whitespace-nowrap px-2 py-3 text-right">
+                              {patientFilter === 'active' && <button type="button" onClick={() => setPatientArchived(account, true)} className="rounded-lg border border-amber-200 px-3 py-1.5 font-bold text-amber-700 cursor-pointer">Archive</button>}
+                              {patientFilter === 'archived' && <button type="button" onClick={() => setPatientArchived(account, false)} className="rounded-lg border border-emerald-200 px-3 py-1.5 font-bold text-emerald-700 cursor-pointer">Restore</button>}
+                            </td>
+                          </tr>
+                        ))}
+                        {visiblePatients.length === 0 && <tr><td colSpan="6" className="py-6 text-center font-medium text-gray-400">No {patientFilter} patient accounts.</td></tr>}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </section>
+
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                <div className="bg-white border border-[#d4e2dc] rounded-2xl p-6 shadow-2xs space-y-4 md:col-span-1">
+                  <h3 className="font-black text-base text-[#13241b]">Register Staff Account</h3>
+                  <form onSubmit={handleRegisterDentist} className="space-y-3 text-xs">
+                    <div>
+                      <label className="block font-bold text-[#13241b] mb-1">Full Name *</label>
+                      <input type="text" required value={newDentistName} onChange={e => setNewDentistName(e.target.value)} placeholder="Dr. Juan Dela Cruz" className="w-full border border-[#d4e2dc] rounded-xl p-2.5 bg-[#f5f7f6]" />
+                    </div>
+                    <div>
+                      <label className="block font-bold text-[#13241b] mb-1">Username *</label>
+                      <input type="text" required value={newDentistUsername} onChange={e => setNewDentistUsername(e.target.value)} placeholder="drjuan" className="w-full border border-[#d4e2dc] rounded-xl p-2.5 bg-[#f5f7f6]" />
+                    </div>
+                    <div>
+                      <label className="block font-bold text-[#13241b] mb-1">Password {editingStaff ? '(leave blank to keep current)' : '*'}</label>
+                      <input type="password" required={!editingStaff} value={newDentistPassword} onChange={e => setNewDentistPassword(e.target.value)} placeholder="••••••••" className="w-full border border-[#d4e2dc] rounded-xl p-2.5 bg-[#f5f7f6]" />
+                    </div>
+                    <div>
+                      <label className="block font-bold text-[#13241b] mb-1">Email Address *</label>
+                      <input type="email" required value={newDentistEmail} onChange={e => setNewDentistEmail(e.target.value)} placeholder="dentist@clinic.com" className="w-full border border-[#d4e2dc] rounded-xl p-2.5 bg-[#f5f7f6]" />
+                    </div>
+                    <div>
+                      <label className="block font-bold text-[#13241b] mb-1">Role *</label>
+                      <select required value={newStaffRole} onChange={e => setNewStaffRole(e.target.value)} className="w-full border border-[#d4e2dc] rounded-xl p-2.5 bg-[#f5f7f6]">
+                        <option value="dentist">Dentist</option>
+                        <option value="assistant">Assistant</option>
+                      </select>
+                    </div>
+                    <button type="submit" className="w-full bg-[#164e43] text-white py-3 rounded-xl font-bold hover:bg-[#0f362e] transition cursor-pointer mt-2">
+                      {editingStaff ? 'Save Changes' : 'Add Account'}
+                    </button>
+                    {editingStaff && <button type="button" onClick={() => { setEditingStaff(null); resetStaffForm(); }} className="w-full border border-[#d4e2dc] text-[#40584f] py-2.5 rounded-xl font-bold cursor-pointer">Cancel Edit</button>}
+                  </form>
+                </div>
+
+                <div className="bg-white border border-[#d4e2dc] rounded-2xl p-6 shadow-2xs md:col-span-2 overflow-hidden flex flex-col">
+                  <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+                    <h3 className="font-black text-base text-[#13241b]">Staff Accounts Directory</h3>
+                    <div className="flex gap-2">
+                      {[['active', 'Active Accounts'], ['archived', 'Archived Accounts']].map(([tab, label]) => (
+                        <button key={tab} type="button" onClick={() => setStaffDirectoryTab(tab)} className={`rounded-full border px-3 py-1.5 text-[11px] font-bold cursor-pointer ${staffDirectoryTab === tab ? 'border-[#164e43] bg-[#164e43] text-white' : 'border-[#d4e2dc] bg-white text-[#40584f]'}`}>
+                          {label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                  {loadingStaff ? (
+                    <div className="py-8 text-center text-xs font-bold text-[#607368]">Loading user accounts...</div>
+                  ) : (
+                    <div className="flex-1 overflow-y-auto">
+                      <table className="w-full text-left border-collapse text-xs">
+                        <thead>
+                          <tr className="border-b border-[#d4e2dc] text-[11px] font-bold text-[#607368] uppercase">
+                            <th className="py-3 px-2">Name</th>
+                            <th className="py-3 px-2">Username</th>
+                            <th className="py-3 px-2">Role</th>
+                            <th className="py-3 px-2">Email</th>
+                            <th className="py-3 px-2 text-right">Actions</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-[#f0f5f2]">
+                          {staffUsers.filter(u => u.role !== 'patient' && (staffDirectoryTab === 'archived' ? Boolean(u.archived_at) : !u.archived_at)).map(u => (
+                            <tr key={u.id} className="hover:bg-[#f8faf9]">
+                              <td className="py-3 px-2 font-bold text-[#13241b]">{u.full_name}</td>
+                              <td className="py-3 px-2 text-[#607368]">{u.username}</td>
+                              <td className="py-3 px-2">
+                                <span className={`px-2 py-0.5 rounded font-bold text-[10px] uppercase ${
+                                  u.role === 'manager' ? 'bg-purple-100 text-purple-700' :
+                                  u.role === 'dentist' ? 'bg-emerald-100 text-emerald-700' :
+                                  u.role === 'assistant' ? 'bg-blue-100 text-blue-700' : 'bg-gray-100 text-gray-700'
+                                }`}>
+                                  {u.role}
+                                </span>
+                              </td>
+                              <td className="py-3 px-2 text-[#607368]">{u.email || 'N/A'}</td>
+                              <td className="py-3 px-2 text-right">
+                                <div className="flex justify-end gap-2">
+                                  {staffDirectoryTab === 'active' && (u.role === 'dentist' || u.role === 'assistant') && <button type="button" onClick={() => startEditingStaff(u)} className="border border-[#d4e2dc] hover:bg-[#f5f7f6] text-[#164e43] px-3 py-1.5 rounded-lg font-bold cursor-pointer">Edit</button>}
+                                  {staffDirectoryTab === 'active' && u.role !== 'manager' && <button type="button" onClick={() => setStaffArchived(u, true)} className="border border-amber-200 hover:bg-amber-50 text-amber-700 px-3 py-1.5 rounded-lg font-bold cursor-pointer">Archive</button>}
+                                  {staffDirectoryTab === 'archived' && <button type="button" onClick={() => setStaffArchived(u, false)} className="border border-emerald-200 hover:bg-emerald-50 text-emerald-700 px-3 py-1.5 rounded-lg font-bold cursor-pointer">Restore</button>}
+                                </div>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                      {staffUsers.filter(u => u.role !== 'patient' && (staffDirectoryTab === 'archived' ? Boolean(u.archived_at) : !u.archived_at)).length === 0 && (
+                        <p className="py-6 text-center text-xs font-medium text-gray-400">No {staffDirectoryTab === 'archived' ? 'archived' : 'active'} staff accounts.</p>
+                      )}
+                    </div>
+                  )}
+                </div>
+              </div>
+            </>
           )}
         </div>
       )}
 
+      {/* EDIT STAFF MODAL */}
       {currentView === 'users' && editingStaff && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={() => { setEditingStaff(null); resetStaffForm(); }}>
           <div role="dialog" aria-modal="true" aria-labelledby="edit-staff-title" className="w-full max-w-lg rounded-2xl bg-white p-6 shadow-xl" onClick={e => e.stopPropagation()}>
@@ -998,6 +1052,7 @@ export default function ManagerModule({ services, addService, updateService, del
         </div>
       )}
 
+      {/* APPOINTMENT DENTIST MODAL */}
       {currentView === 'users' && appointmentPatient && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={() => setAppointmentPatient(null)}>
           <div role="dialog" aria-modal="true" aria-labelledby="appointment-dentist-title" className="max-h-[90vh] w-full max-w-3xl overflow-y-auto rounded-2xl bg-white p-6 shadow-xl" onClick={(event) => event.stopPropagation()}>
@@ -1039,7 +1094,7 @@ export default function ManagerModule({ services, addService, updateService, del
                           </label>
                           <button type="button" onClick={() => saveAppointmentDentist(appointment)}
                             disabled={savingAppointmentId === appointment.id || dentistValue === (appointmentAssignments[appointment.id] ?? appointment.assigned_dentist ?? '')}
-                            className="rounded-xl bg-[#164e43] px-4 py-2.5 text-xs font-bold text-white disabled:cursor-not-allowed disabled:opacity-50">
+                            className="rounded-xl bg-[#164e43] px-4 py-2.5 text-xs font-bold text-white disabled:cursor-not-allowed disabled:opacity-50 cursor-pointer">
                             {savingAppointmentId === appointment.id ? 'Saving…' : 'Save'}
                           </button>
                         </>
