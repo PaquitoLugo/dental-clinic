@@ -1,4 +1,4 @@
-import { useState, useContext } from 'react';
+import { useState, useContext, useEffect } from 'react';
 import { ClinicContext, ClinicProvider } from './context/ClinicContext';
 import PatientModule from './views/PatientModule';
 import AssistantModule from './views/AssistantModule';
@@ -9,6 +9,15 @@ import PatientPortal from './views/patientPortal';
 import DialogHost, { dialog } from './components/DialogHost';
 import useSessionGuard from './data/useSessionGuard';
 import ResetPassword from './components/ResetPassword'; // Added ResetPassword import
+import { supabase } from './lib/supabase';
+
+const roleForStaff = (staff) => {
+  if (staff.id === 1) return 'manager';
+  if (staff.id === 2) return 'dentist';
+  if (staff.id === 3) return 'assistant';
+  if (staff.id === 4) return 'patient';
+  return (staff.role || 'patient').toLowerCase();
+};
 
 function MainWorkspace({ authenticatedUser, handleLogout, onProfileUpdated }) {
   const contextData = useContext(ClinicContext);
@@ -254,21 +263,60 @@ export default function App() {
   const urlParams = new URLSearchParams(window.location.search);
   const resetToken = urlParams.get('resetToken');
 
-  const [authenticatedUser, setAuthenticatedUser] = useState(() => {
-    const savedUser = localStorage.getItem('dental_portal_user');
-    return savedUser ? JSON.parse(savedUser) : null;
-  });
+  const [authenticatedUser, setAuthenticatedUser] = useState(null);
+  const [authReady, setAuthReady] = useState(false);
 
   const [portalView, setPortalView] = useState('portal');
 
-  const handleLoginSuccess = (role, fullName, id) => {
-    let mappedRole = (role || 'patient').toLowerCase();
-    if (id === 1) mappedRole = 'manager';
-    else if (id === 2) mappedRole = 'dentist';
-    else if (id === 3) mappedRole = 'assistant';
-    else if (id === 4) mappedRole = 'patient';
+  useEffect(() => {
+    let active = true;
+    supabase.auth.getSession()
+      .then(async ({ data, error }) => {
+        if (error) throw error;
+        const session = data.session;
+        if (!session) {
+          localStorage.removeItem('dental_portal_user');
+          if (active) setAuthenticatedUser(null);
+          return;
+        }
 
-    const userData = { id, role: mappedRole, name: fullName };
+        const { data: staff, error: staffError } = await supabase.from('staff_users')
+          .select('id, role, full_name, archived_at, account_status')
+          .eq('auth_user_id', session.user.id)
+          .maybeSingle();
+        if (staffError) throw staffError;
+        const accountStatus = String(staff?.account_status || 'approved').toLowerCase();
+        if (!staff || staff.archived_at || ['pending', 'rejected'].includes(accountStatus)) {
+          await supabase.auth.signOut();
+          localStorage.removeItem('dental_portal_user');
+          if (active) setAuthenticatedUser(null);
+          return;
+        }
+
+        const userData = { id: staff.id, role: roleForStaff(staff), name: staff.full_name };
+        localStorage.setItem('dental_portal_user', JSON.stringify(userData));
+        if (active) setAuthenticatedUser(userData);
+      })
+      .catch(async (error) => {
+        console.error('Could not restore the signed-in session:', error);
+        localStorage.removeItem('dental_portal_user');
+        try {
+          const { error: signOutError } = await supabase.auth.signOut();
+          if (signOutError) console.error('Could not clear the Supabase session:', signOutError);
+        } catch (signOutError) {
+          console.error('Could not clear the Supabase session:', signOutError);
+        }
+        if (active) setAuthenticatedUser(null);
+      })
+      .finally(() => {
+        if (active) setAuthReady(true);
+      });
+
+    return () => { active = false; };
+  }, []);
+
+  const handleLoginSuccess = (role, fullName, id) => {
+    const userData = { id, role: roleForStaff({ id, role }), name: fullName };
     localStorage.setItem('dental_portal_user', JSON.stringify(userData));
     setAuthenticatedUser(userData);
   };
@@ -276,6 +324,12 @@ export default function App() {
   const handleLogout = async () => {
     const confirmed = await dialog.confirm('Are you sure you want to sign out of your workspace?', { title: 'Sign out', confirmText: 'Sign Out' });
     if (confirmed) {
+      try {
+        const { error } = await supabase.auth.signOut();
+        if (error) console.error('Could not fully sign out of Supabase Auth:', error);
+      } catch (error) {
+        console.error('Could not fully sign out of Supabase Auth:', error);
+      }
       localStorage.removeItem('dental_portal_user');
       setAuthenticatedUser(null);
       setPortalView('portal');
@@ -283,6 +337,12 @@ export default function App() {
   };
 
   const handleForcedLogout = async (reason) => {
+    try {
+      const { error } = await supabase.auth.signOut();
+      if (error) console.error('Could not fully sign out of Supabase Auth:', error);
+    } catch (error) {
+      console.error('Could not fully sign out of Supabase Auth:', error);
+    }
     localStorage.removeItem('dental_portal_user');
     setAuthenticatedUser(null);
     setPortalView('login');
@@ -323,7 +383,9 @@ export default function App() {
   return (
     <ClinicProvider>
       <div className="min-h-screen w-full bg-[#f4f7f6] overflow-y-auto">
-        {authenticatedUser ? (
+        {!authReady ? (
+          <div className="min-h-screen flex items-center justify-center text-sm font-bold text-[#607368]">Restoring your secure session…</div>
+        ) : authenticatedUser ? (
           <MainWorkspace authenticatedUser={authenticatedUser} handleLogout={handleLogout} onProfileUpdated={handleProfileUpdated} />
         ) : (
           <>

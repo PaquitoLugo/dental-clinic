@@ -202,7 +202,7 @@ export default function ToothChart({ patientId, patientName, canEdit = false, ed
     setError('');
     const { data, error: err } = await supabase.from('tooth_chart').select('*').eq('patient_id', patientId);
     if (err) {
-      setError(`Could not load the tooth chart: ${err.message}. If the table is missing, run supabase_migration.sql.`);
+      setError(`Could not load the tooth chart: ${err.message}. Verify the tooth-chart tables and apply pending migrations with supabase db push.`);
       setChart({});
     } else {
       setChart(Object.fromEntries((data || []).map((r) => [r.tooth_number, r])));
@@ -211,7 +211,7 @@ export default function ToothChart({ patientId, patientName, canEdit = false, ed
       .from('tooth_chart_history').select('*').eq('patient_id', patientId).order('created_at', { ascending: false });
     if (logsErr) {
       setHistory([]);
-      if (!err) setError(`Could not load tooth history: ${logsErr.message}. Run section 4 of supabase_migration.sql.`);
+      if (!err) setError(`Could not load tooth history: ${logsErr.message}. Apply pending tooth-chart access migrations with supabase db push.`);
     } else {
       setHistory(logs || []);
     }
@@ -360,7 +360,7 @@ export default function ToothChart({ patientId, patientName, canEdit = false, ed
       .select()
       .single();
     if (logErr) {
-      setError(`Tooth saved, but the history entry could not be recorded: ${logErr.message}. Run section 4 of supabase_migration.sql.`);
+      setError(`Tooth saved, but the history entry could not be recorded: ${logErr.message}. Apply pending tooth-chart access migrations with supabase db push.`);
     } else {
       setHistory((prev) => [logged, ...prev]);
     }

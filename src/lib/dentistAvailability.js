@@ -2,13 +2,14 @@ import { supabase } from './supabase';
 import { localDateKey } from './dateUtils';
 
 export async function fetchDentistAvailability(dentistName, fromDate = localDateKey()) {
-  const { data, error } = await supabase
+  let query = supabase
     .from('dentist_availability')
     .select('available_date, start_time, end_time, is_active')
     .eq('dentist_name', dentistName)
     .eq('is_active', true)
-    .gte('available_date', fromDate)
     .order('available_date');
+  if (fromDate) query = query.gte('available_date', fromDate);
+  const { data, error } = await query;
 
   if (error) throw error;
 

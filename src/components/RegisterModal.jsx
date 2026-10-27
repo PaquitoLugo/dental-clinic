@@ -1,8 +1,10 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { getData as getCountryData } from 'country-list';
 import { supabase } from '../lib/supabase';
 import PhAddressSelect from './PhAddressSelect';
 import { EMPTY_ADDRESS, buildCompleteAddress } from '../lib/phAddress';
+import { getStaticPostalCode, lookupPostalCode } from '../lib/postalCode';
+import { getPhoneCallingCode, validatePhoneNumber } from '../lib/phoneNumber';
 import showPasswordIcon from '../assets/forgot-pass-default.png';
 import hidePasswordIcon from '../assets/forgot-pass-clicked.png';
 
@@ -69,12 +71,112 @@ export default function RegisterModal({ isOpen, onClose, onSuccess }) {
   const [address, setAddress] = useState(INITIAL_ADDRESS);
   const [subdivisionOptions, setSubdivisionOptions] = useState([]);
   const [subdivisionStatus, setSubdivisionStatus] = useState({ loading: false, error: '' });
+  const [postalLookupStatus, setPostalLookupStatus] = useState({ loading: false, message: '' });
+  const postalLookupGeneration = useRef(0);
   const [errors, setErrors] = useState({});
   const [touched, setTouched] = useState({});
   const [globalError, setGlobalError] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
+
+  const updateAddress = (patch) => {
+    const next = { ...address, ...patch };
+    const locationChanged = [
+      'countryCode', 'countryName', 'regionCode', 'provinceCode',
+      'cityCode', 'cityName', 'barangayCode', 'barangayName', 'subdivisionName',
+    ].some((field) => address[field] !== next[field]);
+
+    if (locationChanged) {
+      postalLookupGeneration.current += 1;
+      const staticPostalCode = getStaticPostalCode({
+        countryCode: next.countryCode,
+        regionCode: next.regionCode,
+        regionName: next.countryCode === 'PH' ? next.regionName : next.subdivisionName,
+        city: next.cityName,
+      });
+      next.postalCode = staticPostalCode;
+      setPostalLookupStatus({
+        loading: false,
+        message: staticPostalCode ? 'Using saved postal-code data for the selected region and city.' : '',
+      });
+    }
+
+    setAddress(next);
+  };
+
+  const handlePostalLookup = useCallback(async () => {
+    if (!address.countryCode || !address.cityName.trim()) {
+      setPostalLookupStatus({ loading: false, message: 'Select a city first to look up its postal code.' });
+      return;
+    }
+
+    setPostalLookupStatus({ loading: true, message: 'Looking up postal code…' });
+    const requestGeneration = postalLookupGeneration.current;
+    try {
+      const region = address.countryCode === 'PH'
+        ? (address.provinceName || address.regionName).trim()
+        : address.subdivisionName.trim();
+      const parentRegion = address.countryCode === 'PH' && address.provinceName
+        ? address.regionName.trim()
+        : '';
+      const postalCode = await lookupPostalCode({
+        city: address.cityName.trim(),
+        region,
+        parentRegion,
+        country: address.countryName,
+        countryCode: address.countryCode,
+        regionCode: address.countryCode === 'PH' ? address.regionCode : '',
+      });
+      if (requestGeneration !== postalLookupGeneration.current) return;
+      if (postalCode) {
+        setAddress((previous) => ({ ...previous, postalCode }));
+        setPostalLookupStatus({ loading: false, message: 'Postal code found for the selected region and city.' });
+      } else {
+        const fallback = getStaticPostalCode({
+          countryCode: address.countryCode,
+          regionCode: address.regionCode,
+          regionName: address.countryCode === 'PH' ? address.regionName : address.subdivisionName,
+          city: address.cityName,
+        });
+        if (fallback) {
+          setAddress((previous) => ({ ...previous, postalCode: fallback }));
+          setPostalLookupStatus({ loading: false, message: 'Using the saved local postal-code data for this region and city.' });
+        } else {
+          setPostalLookupStatus({ loading: false, message: 'No postal code is available for this region and city yet.' });
+        }
+      }
+    } catch (error) {
+      if (requestGeneration !== postalLookupGeneration.current) return;
+      console.error('Could not look up postal code:', error);
+      const fallback = getStaticPostalCode({
+        countryCode: address.countryCode,
+        regionCode: address.regionCode,
+        regionName: address.countryCode === 'PH' ? address.regionName : address.subdivisionName,
+        city: address.cityName,
+      });
+      if (fallback) {
+        setAddress((previous) => ({ ...previous, postalCode: fallback }));
+        setPostalLookupStatus({ loading: false, message: 'Lookup unavailable; using saved local postal-code data.' });
+      } else {
+        setPostalLookupStatus({ loading: false, message: 'Postal code could not be fetched for this region and city.' });
+      }
+    }
+  }, [
+    address.cityName,
+    address.countryCode,
+    address.countryName,
+    address.provinceName,
+    address.regionCode,
+    address.regionName,
+    address.subdivisionName,
+  ]);
+
+  useEffect(() => {
+    if (address.countryCode !== 'PH' || !address.cityCode || address.regionCode === '1300000000') return undefined;
+    const timer = window.setTimeout(() => handlePostalLookup(), 0);
+    return () => window.clearTimeout(timer);
+  }, [address.cityCode, address.countryCode, address.countryName, address.regionCode, address.regionName, handlePostalLookup]);
 
   useEffect(() => {
     if (!address.countryCode || address.countryCode === 'PH') return undefined;
@@ -176,25 +278,37 @@ export default function RegisterModal({ isOpen, onClose, onSuccess }) {
       case 'mobileNumber': {
         const v = value.trim();
         if (!v) return 'Mobile number is required.';
-        if (!/^09\d{9}$/.test(v)) {
-          return 'Enter an 11-digit mobile number starting with 09 (e.g. 09171234567).';
-        }
-        return '';
+        return validatePhoneNumber(v, address.countryCode);
       }
       case 'guardianName':
       case 'guardianRelationship':
-      case 'guardianContact':
         if (allValues.isGuardian && !value.trim()) return 'This field is required when registering as a guardian.';
         return '';
+      case 'guardianContact': {
+        if (!allValues.isGuardian) return '';
+        if (!value.trim()) return 'This field is required when registering as a guardian.';
+        return validatePhoneNumber(value.trim(), address.countryCode);
+      }
       case 'email': {
         const v = value.trim().toLowerCase();
         if (!v) return ''; // Email is optional, remove if required
-        if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v)) {
+        if (v.length > 254 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v)) {
           return 'Enter a valid email address.';
         }
-        const domain = v.split('@')[1];
+        const [localPart, domain] = v.split('@');
         if (!ALLOWED_EMAIL_DOMAINS.includes(domain)) {
           return `Only common email providers are allowed (${ALLOWED_EMAIL_DOMAINS.join(', ')}).`;
+        }
+        if (domain === 'gmail.com') {
+          const [gmailName, ...plusTags] = localPart.split('+');
+          if (
+            gmailName.length > 30
+            || !/^[a-z0-9]+(?:\.[a-z0-9]+)*$/.test(gmailName)
+            || plusTags.length > 1
+            || (plusTags.length === 1 && !/^[a-z0-9-]+$/.test(plusTags[0]))
+          ) {
+            return 'Enter a valid Gmail address.';
+          }
         }
         try {
           const { data, error } = await supabase.from('staff_users').select('id').eq('email', v).limit(1);
@@ -227,7 +341,7 @@ export default function RegisterModal({ isOpen, onClose, onSuccess }) {
 
   const handleChange = (field) => (e) => {
     let value = e.target.value;
-    if (field === 'mobileNumber') {
+    if (field === 'mobileNumber' || field === 'guardianContact') {
       value = value.replace(/\D/g, '');
     }
 
@@ -259,6 +373,8 @@ export default function RegisterModal({ isOpen, onClose, onSuccess }) {
   const handleClose = () => {
     setForm(INITIAL);
     setAddress(INITIAL_ADDRESS);
+    postalLookupGeneration.current += 1;
+    setPostalLookupStatus({ loading: false, message: '' });
     setSubdivisionOptions([]);
     setSubdivisionStatus({ loading: false, error: '' });
     setErrors({});
@@ -456,12 +572,16 @@ export default function RegisterModal({ isOpen, onClose, onSuccess }) {
               </div>
               <div>
                 <label className={labelClass}>Mobile number *</label>
-                <input required type="tel" inputMode="numeric" maxLength={11} placeholder="09171234567" className={getInputStyle('mobileNumber')} value={form.mobileNumber} onChange={handleChange('mobileNumber')} onBlur={handleBlur('mobileNumber')} />
+                <div className="flex items-center gap-2">
+                  <span className="rounded-xl border border-[#d4e2dc] bg-[#f5f7f6] px-3 py-2.5 text-xs font-bold text-[#607368]">{getPhoneCallingCode(address.countryCode)}</span>
+                  <input required type="tel" inputMode="numeric" maxLength={15} autoComplete="tel-national" placeholder="Enter your national number" className={getInputStyle('mobileNumber')} value={form.mobileNumber} onChange={handleChange('mobileNumber')} onBlur={handleBlur('mobileNumber')} />
+                </div>
+                <p className="text-[10px] text-[#607368] mt-1">Enter the number for the selected country, without the country calling code.</p>
                 {touched.mobileNumber && errors.mobileNumber && <p className="text-red-500 text-[10px] mt-1 font-semibold">{errors.mobileNumber}</p>}
               </div>
               <div>
                 <label className={labelClass}>Email</label>
-                <input type="email" className={getInputStyle('email')} value={form.email} onChange={handleChange('email')} onBlur={handleBlur('email')} />
+                <input type="email" maxLength={254} autoComplete="email" className={getInputStyle('email')} value={form.email} onChange={handleChange('email')} onBlur={handleBlur('email')} />
                 {touched.email && errors.email && <p className="text-red-500 text-[10px] mt-1 font-semibold">{errors.email}</p>}
               </div>
             </div>
@@ -522,15 +642,21 @@ export default function RegisterModal({ isOpen, onClose, onSuccess }) {
                   </div>
                   <div className="sm:col-span-2">
                     <label className={labelClass}>Guardian contact number *</label>
-                    <input
-                      required={form.isGuardian}
-                      type="tel"
-                      autoComplete="tel"
-                      className={getInputStyle('guardianContact')}
-                      value={form.guardianContact}
-                      onChange={handleChange('guardianContact')}
-                      onBlur={handleBlur('guardianContact')}
-                    />
+                    <div className="flex items-center gap-2">
+                      <span className="rounded-xl border border-[#d4e2dc] bg-[#f5f7f6] px-3 py-2.5 text-xs font-bold text-[#607368]">{getPhoneCallingCode(address.countryCode)}</span>
+                      <input
+                        required={form.isGuardian}
+                        type="tel"
+                        inputMode="numeric"
+                        maxLength={15}
+                        autoComplete="tel-national"
+                        placeholder="Enter national number"
+                        className={getInputStyle('guardianContact')}
+                        value={form.guardianContact}
+                        onChange={handleChange('guardianContact')}
+                        onBlur={handleBlur('guardianContact')}
+                      />
+                    </div>
                     {touched.guardianContact && errors.guardianContact && <p className="text-red-500 text-[10px] mt-1 font-semibold">{errors.guardianContact}</p>}
                   </div>
                 </div>
@@ -549,7 +675,7 @@ export default function RegisterModal({ isOpen, onClose, onSuccess }) {
                   value={address.countryCode}
                   onChange={(event) => {
                     const country = COUNTRIES.find((item) => item.code === event.target.value);
-                    setAddress({
+                    updateAddress({
                       ...INITIAL_ADDRESS,
                       countryCode: country?.code || '',
                       countryName: country?.code === 'PH' ? 'Philippines' : (country?.name || ''),
@@ -565,30 +691,11 @@ export default function RegisterModal({ isOpen, onClose, onSuccess }) {
                   ))}
                 </select>
               </div>
-              <div>
-                <label className={labelClass}>{postalLabelForCountry(address.countryCode)}</label>
-                <input
-                  autoComplete="postal-code"
-                  className={`${baseInputClass} ${normalInputClass}`}
-                  value={address.postalCode}
-                  onChange={(event) => setAddress((previous) => ({ ...previous, postalCode: event.target.value }))}
-                />
-              </div>
             </div>
             {address.countryCode === 'PH' ? (
-              <PhAddressSelect value={address} onChange={setAddress} />
+              <PhAddressSelect value={address} onChange={updateAddress} />
             ) : (
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <div className="sm:col-span-2">
-                  <label className={labelClass}>House No. / Street *</label>
-                  <input
-                    required
-                    autoComplete="address-line1"
-                    className={`${baseInputClass} ${normalInputClass}`}
-                    value={address.street}
-                    onChange={(event) => setAddress((previous) => ({ ...previous, street: event.target.value }))}
-                  />
-                </div>
                 {(subdivisionOptions.length > 0 || subdivisionStatus.loading || subdivisionStatus.error || COUNTRIES_WITH_SUBDIVISIONS.has(address.countryCode)) && (
                   <div>
                     <label className={labelClass}>{subdivisionLabelForCountry(address.countryCode)}{subdivisionOptions.length > 0 || subdivisionStatus.error || COUNTRIES_WITH_SUBDIVISIONS.has(address.countryCode) ? ' *' : ''}</label>
@@ -598,7 +705,7 @@ export default function RegisterModal({ isOpen, onClose, onSuccess }) {
                         className={`${baseInputClass} ${normalInputClass}`}
                         value={address.subdivisionName}
                         disabled={subdivisionStatus.loading}
-                        onChange={(event) => setAddress((previous) => ({ ...previous, subdivisionName: event.target.value }))}
+                        onChange={(event) => updateAddress({ subdivisionName: event.target.value })}
                       >
                         <option value="">{subdivisionStatus.loading ? 'Loading...' : 'Select region'}</option>
                         {subdivisionOptions.map((subdivision) => (
@@ -612,7 +719,7 @@ export default function RegisterModal({ isOpen, onClose, onSuccess }) {
                         className={`${baseInputClass} ${normalInputClass}`}
                         value={address.subdivisionName}
                         disabled={subdivisionStatus.loading}
-                        onChange={(event) => setAddress((previous) => ({ ...previous, subdivisionName: event.target.value }))}
+                        onChange={(event) => updateAddress({ subdivisionName: event.target.value })}
                       />
                     )}
                     {subdivisionStatus.error && <p className="mt-1 text-[10px] font-semibold text-amber-700">{subdivisionStatus.error}</p>}
@@ -625,11 +732,39 @@ export default function RegisterModal({ isOpen, onClose, onSuccess }) {
                     autoComplete="address-level2"
                     className={`${baseInputClass} ${normalInputClass}`}
                     value={address.cityName}
-                    onChange={(event) => setAddress((previous) => ({ ...previous, cityName: event.target.value }))}
+                    onChange={(event) => updateAddress({ cityName: event.target.value })}
+                    onBlur={handlePostalLookup}
+                  />
+                </div>
+                <div className="sm:col-span-2">
+                  <label className={labelClass}>House No. / Street *</label>
+                  <input
+                    required
+                    autoComplete="address-line1"
+                    className={`${baseInputClass} ${normalInputClass}`}
+                    value={address.street}
+                    onChange={(event) => updateAddress({ street: event.target.value })}
                   />
                 </div>
               </div>
             )}
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <div>
+                <label className={labelClass}>{postalLabelForCountry(address.countryCode)}</label>
+                <input
+                  autoComplete="postal-code"
+                  className={`${baseInputClass} ${normalInputClass} bg-gray-50`}
+                  value={address.postalCode}
+                  readOnly
+                  aria-readonly="true"
+                  placeholder={postalLookupStatus.loading ? 'Looking up…' : 'Auto-filled from region and city'}
+                />
+                {postalLookupStatus.message && <p role="status" className="mt-1 text-[10px] font-semibold text-[#607368]">{postalLookupStatus.message}</p>}
+              </div>
+            </div>
+            <p className="text-[10px] text-[#607368]">
+              Postal lookup results use OpenStreetMap data. <a className="underline" href="https://www.openstreetmap.org/copyright" target="_blank" rel="noreferrer">© OpenStreetMap contributors</a>
+            </p>
           </section>
 
           <section className="space-y-3">

@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
   getRegions, getProvinces, getCities, getBarangays,
   regionHasProvinces, INDEPENDENT, EMPTY_ADDRESS,
@@ -14,8 +14,7 @@ const labelClass = 'block font-bold text-[#607368] mb-1 text-xs';
  */
 export default function PhAddressSelect({ value, onChange, required = true }) {
   const addr = { ...EMPTY_ADDRESS, ...(value || {}) };
-  const [barangays, setBarangays] = useState([]);
-  const [loadingBarangays, setLoadingBarangays] = useState(false);
+  const [barangayState, setBarangayState] = useState({ cityCode: '', rows: [], loading: false });
 
   const regions = useMemo(() => getRegions(), []);
   const provinces = useMemo(() => getProvinces(addr.regionCode), [addr.regionCode]);
@@ -25,17 +24,24 @@ export default function PhAddressSelect({ value, onChange, required = true }) {
   // Load barangays whenever the city changes
   useEffect(() => {
     let cancelled = false;
-    setBarangays([]);
     if (!addr.cityCode) return undefined;
-    setLoadingBarangays(true);
-    getBarangays(addr.cityCode).then((rows) => {
+    const cityCode = addr.cityCode;
+    Promise.resolve().then(async () => {
       if (cancelled) return;
-      setBarangays(rows);
-      setLoadingBarangays(false);
+      setBarangayState((previous) => ({
+        cityCode,
+        rows: previous.cityCode === cityCode ? previous.rows : [],
+        loading: true,
+      }));
+      const rows = await getBarangays(cityCode);
+      if (!cancelled) setBarangayState({ cityCode, rows, loading: false });
     });
     return () => { cancelled = true; };
   }, [addr.cityCode]);
 
+  const currentBarangayState = barangayState.cityCode === addr.cityCode;
+  const barangays = currentBarangayState ? barangayState.rows : [];
+  const loadingBarangays = Boolean(addr.cityCode) && (!currentBarangayState || barangayState.loading);
   const update = (patch) => onChange({ ...addr, ...patch });
   const nameOf = (list, code) => list.find((x) => x.code === code)?.name || '';
 
@@ -63,17 +69,6 @@ export default function PhAddressSelect({ value, onChange, required = true }) {
 
   return (
     <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-      <div className="sm:col-span-2">
-        <label className={labelClass}>House No. / Street{star}</label>
-        <input
-          className={selectClass}
-          value={addr.street}
-          required={required}
-          placeholder="e.g. 123 Rizal St."
-          onChange={(e) => update({ street: e.target.value })}
-        />
-      </div>
-
       <div>
         <label className={labelClass}>Region{star}</label>
         <select className={selectClass} value={addr.regionCode} required={required} onChange={(e) => handleRegion(e.target.value)}>
@@ -141,6 +136,17 @@ export default function PhAddressSelect({ value, onChange, required = true }) {
             The barangay list could not be loaded, so please type it in manually.
           </p>
         )}
+      </div>
+
+      <div className="sm:col-span-2">
+        <label className={labelClass}>House No. / Street{star}</label>
+        <input
+          className={selectClass}
+          value={addr.street}
+          required={required}
+          placeholder="e.g. 123 Rizal St."
+          onChange={(e) => update({ street: e.target.value })}
+        />
       </div>
     </div>
   );

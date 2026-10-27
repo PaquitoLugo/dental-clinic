@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { supabase } from '../lib/supabase';
 import { dialog } from '../components/DialogHost';
-import PhAddressSelect from '../components/PhAddressSelect';
+import SelfProfile from '../components/SelfProfile';
 import ToothChart from '../components/ToothChart';
 import TreatmentRecordModal from '../components/TreatmentRecordModal';
 import useTreatmentRecords from '../lib/useTreatmentRecords';
@@ -23,17 +23,10 @@ const formatApptTime = (t) => {
 import { EMPTY_ADDRESS, buildCompleteAddress } from '../lib/phAddress';
 
 const TODAY = new Date();
-const MAX_YEAR = TODAY.getFullYear();
-const MAX_MONTH = TODAY.getMonth() + 1;
-const MAX_DAY = TODAY.getDate() - 1;
-
 const MONTHS = [
   "January", "February", "March", "April", "May", "June",
   "July", "August", "September", "October", "November", "December",
 ];
-
-const BIRTH_YEAR_OPTIONS = Array.from({ length: 120 }, (_, i) => MAX_YEAR - i);
-const DAY_OPTIONS = Array.from({ length: 31 }, (_, i) => i + 1);
 
 export default function DentistModule({ 
   appointments, 
@@ -56,10 +49,13 @@ export default function DentistModule({
   const [middleName, setMiddleName] = useState('');
   const [username, setUsername] = useState('');
   const [email, setEmail] = useState('');
+  const [mobileNumber, setMobileNumber] = useState('');
+  const [sex, setSex] = useState('');
   const [birthMonth, setBirthMonth] = useState('');
   const [birthDay, setBirthDay] = useState('');
   const [birthYear, setBirthYear] = useState('');
   const [address, setAddress] = useState(EMPTY_ADDRESS);
+  const [completeAddress, setCompleteAddress] = useState('');
   const [profileSuccess, setProfileSuccess] = useState('');
 
   // Treatment notes / prescriptions the dentist issues before the assistant can mark a visit as done
@@ -84,6 +80,7 @@ export default function DentistModule({
   const [timeOutInput, setTimeOutInput] = useState('17:00');
   
   const [availabilityMap, setAvailabilityMap] = useState({});
+  const [attendanceByDate, setAttendanceByDate] = useState({});
   const [availabilityLoading, setAvailabilityLoading] = useState(true);
   const [availabilityError, setAvailabilityError] = useState('');
   const [scheduleMsg, setScheduleMsg] = useState('');
@@ -96,8 +93,11 @@ export default function DentistModule({
     message: attendanceMessage,
     clockIn,
     clockOut,
+    cancelClockIn,
+    cancelClockOut,
     checkClockedIn,
     checkPendingPatients,
+    checkCompletedAppointments,
   } = useAttendance(user, {
     timeIn: availabilityMap[localDateKey()]?.timeIn || '08:00',
     timeOut: availabilityMap[localDateKey()]?.timeOut || '17:00',
@@ -135,8 +135,8 @@ export default function DentistModule({
     if (!(await requireOnShift())) return;
     setLimitSaveError(false);
     const limit = Number(maxDailyPatients);
-    if (!Number.isInteger(limit) || limit < 1) {
-      setLimitSavedMsg('Daily patient limit must be a whole number greater than zero.');
+    if (!Number.isInteger(limit) || limit < 1 || limit > 50) {
+      setLimitSavedMsg('Daily patient limit must be a whole number from 1 to 50.');
       setLimitSaveError(true);
       return;
     }
@@ -159,6 +159,10 @@ export default function DentistModule({
     e.preventDefault();
     if (!(await requireOnShift())) return;
     if (!selectedDateKey || !scheduleDentistName) return;
+    if (selectedDateKey < localDateKey()) {
+      setScheduleMsg('Past dates are view-only. You can review your attendance, but cannot change availability.');
+      return;
+    }
 
     const updated = {
       ...availabilityMap,
@@ -171,12 +175,14 @@ export default function DentistModule({
       setScheduleMsg(`Could not save availability: ${error.message}`);
       return;
     }
-    await recordActivity(user, {
+    const logged = await recordActivity(user, {
       action: `Updated availability for ${selectedDateKey}`,
       entityType: 'availability', entityId: selectedDateKey,
       details: { time_in: timeInInput, time_out: timeOutInput }
     });
-    setScheduleMsg(`Availability saved for ${selectedDateKey} (${timeInInput} - ${timeOutInput})!`);
+    setScheduleMsg(logged
+      ? `Availability saved for ${selectedDateKey} (${timeInInput} - ${timeOutInput})!`
+      : `Availability was saved for ${selectedDateKey}, but its activity log could not be recorded. Apply the pending Supabase migrations.`);
     setTimeout(() => setScheduleMsg(''), 4000);
   };
 
@@ -187,6 +193,7 @@ export default function DentistModule({
     const daysInMonth = new Date(calendarYear, calendarMonth + 1, 0).getDate();
     const updated = { ...availabilityMap };
     let count = 0;
+    const today = localDateKey();
 
     for (let d = 1; d <= daysInMonth; d++) {
       const dt = new Date(calendarYear, calendarMonth, d);
@@ -196,14 +203,20 @@ export default function DentistModule({
         const dd = String(dt.getDate()).padStart(2, '0');
         const dateStr = `${yyyy}-${mm}-${dd}`;
 
+        if (dateStr < today) continue;
         updated[dateStr] = { timeIn: timeInInput, timeOut: timeOutInput, active: true };
         count++;
       }
+    }
+    if (!count) {
+      setScheduleMsg('There are no current or future dates for this weekday in the selected month.');
+      return;
     }
 
     try {
       await Promise.all(Object.entries(updated)
         .filter(([date]) => date.startsWith(`${calendarYear}-${String(calendarMonth + 1).padStart(2, '0')}-`)
+          && date >= today
           && new Date(`${date}T00:00:00`).getDay() === targetDayOfWeek)
         .map(([date, schedule]) => saveDentistAvailability(scheduleDentistName, date, schedule)));
       setAvailabilityMap(updated);
@@ -212,24 +225,33 @@ export default function DentistModule({
       return;
     }
     const dayNames = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
-    await recordActivity(user, {
+    const logged = await recordActivity(user, {
       action: `Applied availability to ${dayNames[targetDayOfWeek]}s in ${MONTHS[calendarMonth]}`,
       entityType: 'availability',
       details: { time_in: timeInInput, time_out: timeOutInput, dates_updated: count }
     });
-    setScheduleMsg(`Applied ${timeInInput} - ${timeOutInput} to all ${dayNames[targetDayOfWeek]}s in ${MONTHS[calendarMonth]} (${count} days updated)!`);
+    setScheduleMsg(logged
+      ? `Applied ${timeInInput} - ${timeOutInput} to all ${dayNames[targetDayOfWeek]}s in ${MONTHS[calendarMonth]} (${count} days updated)!`
+      : `Availability was updated, but its activity log could not be recorded. Apply the pending Supabase migrations.`);
     setTimeout(() => setScheduleMsg(''), 4000);
   };
 
   const handleRemoveAvailability = async (dateStr) => {
     if (!(await requireOnShift())) return;
     if (!scheduleDentistName) return;
+    if (dateStr < localDateKey()) {
+      setScheduleMsg('Past dates are view-only. You can review your attendance, but cannot change availability.');
+      return;
+    }
     const updated = { ...availabilityMap };
     delete updated[dateStr];
     try {
       await deactivateDentistAvailability(scheduleDentistName, dateStr);
       setAvailabilityMap(updated);
-      await recordActivity(user, { action: `Removed availability for ${dateStr}`, entityType: 'availability', entityId: dateStr });
+      const logged = await recordActivity(user, { action: `Removed availability for ${dateStr}`, entityType: 'availability', entityId: dateStr });
+      setScheduleMsg(logged
+        ? `Availability removed for ${dateStr}.`
+        : `Availability was removed for ${dateStr}, but its activity log could not be recorded. Apply the pending Supabase migrations.`);
     } catch (error) {
       setScheduleMsg(`Could not remove availability: ${error.message}`);
     }
@@ -244,11 +266,19 @@ export default function DentistModule({
       );
       return;
     }
+    const today = localDateKey();
+    const todayAvailability = availabilityMap[today];
+    if (!todayAvailability?.active) {
+      const confirmed = await dialog.confirm(
+        'Today is not one of your scheduled availability dates. Are you sure you want to time in and mark yourself available for today?',
+        { title: 'Unscheduled availability', confirmText: 'Yes, Time In', cancelText: 'No' },
+      );
+      if (!confirmed) return;
+    }
+
     const didClockIn = await clockIn();
     if (!didClockIn) return;
 
-    const today = localDateKey();
-    const todayAvailability = availabilityMap[today];
     const updated = {
       ...availabilityMap,
       [today]: {
@@ -281,6 +311,23 @@ export default function DentistModule({
     await clockOut();
   };
 
+  const handleCancelClockIn = async () => {
+    if (!(await requireActiveAccount())) return;
+    const completedAppointmentMessage = await checkCompletedAppointments();
+    if (completedAppointmentMessage) {
+      await dialog.alert(completedAppointmentMessage, { title: 'Time-in cannot be cancelled', variant: 'warning' });
+      return;
+    }
+    if (!(await dialog.confirm('Cancel your time-in for today?', { title: 'Cancel time-in', confirmText: 'Cancel Time-In' }))) return;
+    await cancelClockIn();
+  };
+
+  const handleCancelClockOut = async () => {
+    if (!(await requireActiveAccount())) return;
+    if (!(await dialog.confirm('Cancel your time-out and return to an active shift?', { title: 'Cancel time-out', confirmText: 'Cancel Time-Out' }))) return;
+    await cancelClockOut();
+  };
+
   // Fetch practitioner profile and PSGC data from Supabase on mount
   useEffect(() => {
     async function fetchDentistProfile() {
@@ -298,6 +345,9 @@ export default function DentistModule({
         setMiddleName(data.middle_name || '');
         setUsername(data.username || '');
         setEmail(data.email || '');
+        setMobileNumber(data.mobile_number || '');
+        setSex(data.sex || '');
+        setCompleteAddress(data.complete_address || '');
         if (data.birthdate) {
           const [yr, mth, dy] = data.birthdate.split('-');
           setBirthYear(yr);
@@ -339,7 +389,7 @@ export default function DentistModule({
     let active = true;
     const loadSchedule = async () => {
       try {
-        const schedule = await fetchDentistAvailability(scheduleDentistName);
+        const schedule = await fetchDentistAvailability(scheduleDentistName, null);
         if (active) {
           setAvailabilityMap(schedule);
           setAvailabilityError('');
@@ -356,6 +406,31 @@ export default function DentistModule({
     loadSchedule();
     return () => { active = false; };
   }, [scheduleDentistName, user?.id]);
+
+  useEffect(() => {
+    if (!user?.id) return undefined;
+    let active = true;
+    const monthStart = new Date(calendarYear, calendarMonth, 1);
+    const nextMonthStart = new Date(calendarYear, calendarMonth + 1, 1);
+    const formatDate = (date) => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+    supabase.from('staff_attendance')
+      .select('attendance_date, clock_in, clock_out')
+      .eq('staff_user_id', user.id)
+      .gte('attendance_date', formatDate(monthStart))
+      .lt('attendance_date', formatDate(nextMonthStart))
+      .then(({ data, error }) => {
+        if (!active) return;
+        if (error) {
+          setScheduleMsg(`Could not load attendance history: ${error.message}`);
+          return;
+        }
+        setAttendanceByDate(Object.fromEntries((data || []).map((entry) => [entry.attendance_date, entry])));
+      })
+      .catch((error) => {
+        if (active) setScheduleMsg(`Could not load attendance history: ${error.message}`);
+      });
+    return () => { active = false; };
+  }, [calendarYear, calendarMonth, user?.id]);
   const assignedAppointments = appointments.filter(a => a.assigned_dentist === dentistName || !a.assigned_dentist);
   const totalPatients = assignedAppointments.length;
   const completedPatients = assignedAppointments.filter(a => a.status === 'Completed').length;
@@ -404,57 +479,37 @@ export default function DentistModule({
     return matchesSearch && matchesService && matchesStatus && matchesDate;
   });
 
-  const handleProfileSave = async (e) => {
-    e.preventDefault();
-    if (!(await requireOnShift())) return;
-    setProfileSuccess('');
-
-    const fullName = `${firstName.trim()} ${middleName ? middleName.trim() + ' ' : ''}${lastName.trim()}`.replace(/\s+/g, " ");
-    const birthdateFormatted = birthYear && birthMonth && birthDay 
-      ? `${birthYear}-${String(birthMonth).padStart(2, '0')}-${String(birthDay).padStart(2, '0')}` 
-      : null;
-
-    const targetId = user?.id || 2;
-
-    try {
-      const { error } = await supabase
-        .from('staff_users')
-        .update({ 
-          first_name: firstName.trim(),
-          last_name: lastName.trim(),
-          middle_name: middleName.trim(),
-          full_name: fullName,
-          username: username.trim().toLowerCase(),
-          email: email.trim(),
-          birthdate: birthdateFormatted,
-          street: address.street.trim(),
-          region_code: address.regionCode,
-          region_name: address.regionName,
-          province_code: address.provinceCode === '__independent__' ? null : (address.provinceCode || null),
-          province_name: address.provinceName || null,
-          city_code: address.cityCode,
-          city_name: address.cityName,
-          barangay_code: address.barangayCode || null,
-          barangay_name: address.barangayName,
-          complete_address: buildCompleteAddress({ ...address, street: address.street.trim() })
-        })
-        .eq('id', targetId);
-
-      if (error) {
-        dialog.alert('Failed to update profile: ' + error.message, { title: 'Profile not saved', variant: 'error' });
-      } else {
-        await recordActivity(user, { action: 'Updated dentist profile', entityType: 'staff_user', entityId: targetId });
-        setProfileSuccess('Profile updated and synchronized with database!');
-        setIsEditingProfile(false);
-      }
-    } catch (err) {
-      console.error(err);
-      dialog.alert('Unexpected error updating profile.', { title: 'Profile not saved', variant: 'error' });
+  const handleProfileUpdated = async (profile) => {
+    await recordActivity(user, { action: 'Updated dentist profile', entityType: 'staff_user', entityId: profile.id });
+    setFirstName(profile.first_name || '');
+    setMiddleName(profile.middle_name || '');
+    setLastName(profile.last_name || '');
+    setUsername(profile.username || '');
+    setEmail(profile.email || '');
+    setMobileNumber(profile.mobile_number || '');
+    setSex(profile.sex || '');
+    setCompleteAddress(profile.complete_address || '');
+    if (profile.birthdate) {
+      const [year, month, day] = profile.birthdate.split('-');
+      setBirthYear(year);
+      setBirthMonth(String(Number(month)));
+      setBirthDay(String(Number(day)));
     }
+    setAddress({
+      ...EMPTY_ADDRESS,
+      street: profile.street || '',
+      regionCode: profile.region_code || '',
+      regionName: profile.region_name || '',
+      provinceCode: profile.province_code || '',
+      provinceName: profile.province_name || '',
+      cityCode: profile.city_code || '',
+      cityName: profile.city_name || '',
+      barangayCode: profile.barangay_code || '',
+      barangayName: profile.barangay_name || '',
+    });
+    setProfileSuccess('Profile updated successfully.');
+    setIsEditingProfile(false);
   };
-
-  const isMaxYear = Number(birthYear) === MAX_YEAR;
-  const isMaxMonth = isMaxYear && Number(birthMonth) === MAX_MONTH;
 
   // Calendar generation helpers
   const firstDayIndex = new Date(calendarYear, calendarMonth, 1).getDay();
@@ -519,6 +574,15 @@ export default function DentistModule({
                 >
                   Time-Out
                 </button>
+                {attendanceRecord?.clock_out ? (
+                  <button type="button" onClick={handleCancelClockOut} disabled={attendanceLoading || attendanceSaving} className="border border-amber-300 text-amber-800 hover:bg-amber-50 disabled:opacity-50 px-3 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer">
+                    Cancel Time-Out
+                  </button>
+                ) : attendanceRecord?.clock_in ? (
+                  <button type="button" onClick={handleCancelClockIn} disabled={attendanceLoading || attendanceSaving} className="border border-red-200 text-red-700 hover:bg-red-50 disabled:opacity-50 px-3 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer">
+                    Cancel Time-In
+                  </button>
+                ) : null}
               </div>
             </div>
           </div>
@@ -597,8 +661,9 @@ export default function DentistModule({
                   type="number" 
                   min="1" 
                   max="50"
+                  step="1"
                   value={maxDailyPatients}
-                  onChange={e => setMaxDailyPatients(e.target.value)}
+                  onChange={e => setMaxDailyPatients(e.target.value.replace(/\D/g, '').slice(0, 2))}
                   className="w-full border border-[#d4e2dc] rounded-xl p-3 bg-white font-bold text-[#13241b]"
                 />
               </div>
@@ -662,7 +727,7 @@ export default function DentistModule({
             {/* Interactive Calendar Grid */}
             <div className="lg:col-span-2 bg-white border border-[#d4e2dc] rounded-2xl p-6 shadow-2xs space-y-4">
               <div className="text-xs text-[#607368] font-bold">
-                💡 <span className="underline">Tip:</span> Click a weekday header (e.g. **Mon**) to set that shift time for all Mondays of the month. Click a specific day box to configure just that date.
+                💡 <span className="underline">Tip:</span> Click a weekday header to schedule current or future dates. Past dates are view-only and show attendance as Present or Absent.
               </div>
 
               <div className="grid grid-cols-7 gap-2 text-center">
@@ -671,8 +736,11 @@ export default function DentistModule({
                     key={wd.label}
                     type="button"
                     onClick={() => handleApplyToAllWeekdayInMonth(wd.index)}
+                    disabled={!calendarCells.some((cell) => cell
+                      && cell.dateStr >= localDateKey()
+                      && new Date(`${cell.dateStr}T00:00:00`).getDay() === wd.index)}
                     title={`Click to set ${timeInInput} - ${timeOutInput} for all ${wd.label}s in ${MONTHS[calendarMonth]}`}
-                    className="bg-[#f0f5f2] hover:bg-[#164e43] hover:text-white text-[#164e43] py-2 rounded-xl text-xs font-black transition cursor-pointer shadow-2xs"
+                    className="bg-[#f0f5f2] hover:bg-[#164e43] hover:text-white text-[#164e43] py-2 rounded-xl text-xs font-black transition cursor-pointer shadow-2xs disabled:cursor-not-allowed disabled:opacity-40"
                   >
                     {wd.label} ↻
                   </button>
@@ -686,6 +754,11 @@ export default function DentistModule({
                   }
                   const slot = availabilityMap[cell.dateStr];
                   const isSelected = selectedDateKey === cell.dateStr;
+                  const isPastDate = cell.dateStr < localDateKey();
+                  const attendance = attendanceByDate[cell.dateStr];
+                  const attendanceStatus = isPastDate && (slot || attendance)
+                    ? attendance?.clock_in ? 'Present' : 'Absent'
+                    : null;
 
                   return (
                     <div
@@ -704,10 +777,12 @@ export default function DentistModule({
                     >
                       <div className="flex justify-between items-center text-xs font-black">
                         <span className={slot ? 'text-emerald-800' : 'text-[#13241b]'}>{cell.dayNum}</span>
-                        {slot && <span className="text-[10px] bg-emerald-200 text-emerald-800 px-1.5 py-0.5 rounded font-bold">Active</span>}
+                        {attendanceStatus
+                          ? <span className={`text-[10px] px-1.5 py-0.5 rounded font-bold ${attendanceStatus === 'Present' ? 'bg-emerald-200 text-emerald-800' : 'bg-red-100 text-red-700'}`}>{attendanceStatus}</span>
+                          : slot && <span className="text-[10px] bg-emerald-200 text-emerald-800 px-1.5 py-0.5 rounded font-bold">Active</span>}
                       </div>
                       <div className="text-[10px] text-[#607368] font-semibold truncate">
-                        {slot ? `${slot.timeIn}` : 'Available?'}
+                        {slot ? `${slot.timeIn}` : isPastDate ? 'No schedule' : 'Available?'}
                       </div>
                     </div>
                   );
@@ -721,6 +796,11 @@ export default function DentistModule({
                 <h3 className="font-black text-base text-[#13241b]">
                   {selectedDateKey ? `Configuring Date: ${selectedDateKey}` : 'Select a Day on Calendar'}
                 </h3>
+                {selectedDateKey && selectedDateKey < localDateKey() && (
+                  <p className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs font-semibold text-amber-800">
+                    Past dates are view-only. Attendance: {attendanceByDate[selectedDateKey]?.clock_in ? 'Present' : availabilityMap[selectedDateKey] ? 'Absent' : 'No schedule'}.
+                  </p>
+                )}
 
                 <form onSubmit={handleSaveSingleDayAvailability} className="space-y-3 text-xs">
                   <div className="grid grid-cols-2 gap-2">
@@ -729,6 +809,7 @@ export default function DentistModule({
                       <input 
                         type="time"
                         required
+                        disabled={!selectedDateKey || selectedDateKey < localDateKey()}
                         value={timeInInput}
                         onChange={e => setTimeInInput(e.target.value)}
                         className="w-full border border-[#d4e2dc] rounded-xl p-3 bg-white font-bold text-[#13241b]"
@@ -739,6 +820,7 @@ export default function DentistModule({
                       <input 
                         type="time"
                         required
+                        disabled={!selectedDateKey || selectedDateKey < localDateKey()}
                         value={timeOutInput}
                         onChange={e => setTimeOutInput(e.target.value)}
                         className="w-full border border-[#d4e2dc] rounded-xl p-3 bg-white font-bold text-[#13241b]"
@@ -748,14 +830,14 @@ export default function DentistModule({
 
                   <button 
                     type="submit"
-                    disabled={!selectedDateKey}
-                    className="w-full bg-[#164e43] hover:bg-[#0f362e] disabled:opacity-50 text-white py-3 rounded-xl font-bold transition cursor-pointer mt-2"
+                    disabled={!selectedDateKey || selectedDateKey < localDateKey()}
+                    className="w-full bg-[#164e43] hover:bg-[#0f362e] disabled:opacity-50 disabled:cursor-not-allowed text-white py-3 rounded-xl font-bold transition cursor-pointer mt-2"
                   >
                     Save Availability for Date
                   </button>
                 </form>
 
-                {selectedDateKey && availabilityMap[selectedDateKey] && (
+                {selectedDateKey && selectedDateKey >= localDateKey() && availabilityMap[selectedDateKey] && (
                   <button
                     type="button"
                     onClick={() => handleRemoveAvailability(selectedDateKey)}
@@ -1056,83 +1138,23 @@ export default function DentistModule({
               </div>
 
               <div className="border-t border-[#d4e2dc] pt-3">
+                <span className="font-bold text-[#607368] block">Mobile number and sex:</span>
+                <p className="font-semibold text-[#13241b] mt-1">{mobileNumber || 'N/A'} · {sex || 'N/A'}</p>
+              </div>
+
+              <div className="border-t border-[#d4e2dc] pt-3">
                 <span className="font-bold text-[#607368] block">Address Information:</span>
-                <p className="font-semibold text-[#13241b] mt-1">{buildCompleteAddress(address) || 'N/A'}</p>
+                <p className="font-semibold text-[#13241b] mt-1">{completeAddress || buildCompleteAddress(address) || 'N/A'}</p>
               </div>
             </div>
           ) : (
-            <form onSubmit={handleProfileSave} className="bg-white border border-[#d4e2dc] rounded-2xl p-6 max-w-2xl space-y-4 text-xs shadow-2xs">
-              <div className="grid grid-cols-3 gap-3">
-                <div>
-                  <label className="block font-bold text-[#607368] mb-1">First Name *</label>
-                  <input type="text" required value={firstName} onChange={e => setFirstName(e.target.value)} className="w-full border border-[#d4e2dc] rounded-xl p-2.5 bg-[#f5f7f6]" />
-                </div>
-                <div>
-                  <label className="block font-bold text-[#607368] mb-1">Last Name *</label>
-                  <input type="text" required value={lastName} onChange={e => setLastName(e.target.value)} className="w-full border border-[#d4e2dc] rounded-xl p-2.5 bg-[#f5f7f6]" />
-                </div>
-                <div>
-                  <label className="block font-bold text-[#607368] mb-1">Middle Name</label>
-                  <input type="text" value={middleName} onChange={e => setMiddleName(e.target.value)} className="w-full border border-[#d4e2dc] rounded-xl p-2.5 bg-[#f5f7f6]" />
-                </div>
-              </div>
-
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block font-bold text-[#607368] mb-1">Username *</label>
-                  <input type="text" required value={username} onChange={e => setUsername(e.target.value)} className="w-full border border-[#d4e2dc] rounded-xl p-2.5 bg-[#f5f7f6]" />
-                </div>
-                <div>
-                  <label className="block font-bold text-[#607368] mb-1">Email Address *</label>
-                  <input type="email" required value={email} onChange={e => setEmail(e.target.value)} className="w-full border border-[#d4e2dc] rounded-xl p-2.5 bg-[#f5f7f6]" />
-                </div>
-              </div>
-
-              <div>
-                <label className="block font-bold text-[#607368] mb-1">Birthdate *</label>
-                <div className="grid grid-cols-3 gap-2">
-                  <select className="border border-[#d4e2dc] rounded-xl p-2.5 bg-[#f5f7f6]" value={birthMonth} onChange={e => setBirthMonth(e.target.value)}>
-                    <option value="">Month</option>
-                    {MONTHS.map((m, i) => (
-                      <option key={m} value={i + 1} disabled={isMaxYear && (i + 1) > MAX_MONTH}>{m}</option>
-                    ))}
-                  </select>
-                  <select className="border border-[#d4e2dc] rounded-xl p-2.5 bg-[#f5f7f6]" value={birthDay} onChange={e => setBirthDay(e.target.value)}>
-                    <option value="">Day</option>
-                    {DAY_OPTIONS.map((d) => (
-                      <option key={d} value={d} disabled={isMaxMonth && d > MAX_DAY}>{d}</option>
-                    ))}
-                  </select>
-                  <select className="border border-[#d4e2dc] rounded-xl p-2.5 bg-[#f5f7f6]" value={birthYear} onChange={e => setBirthYear(e.target.value)}>
-                    <option value="">Year</option>
-                    {BIRTH_YEAR_OPTIONS.map((y) => (
-                      <option key={y} value={y}>{y}</option>
-                    ))}
-                  </select>
-                </div>
-              </div>
-
-              <div className="bg-[#f5f7f6] border border-[#d4e2dc] rounded-2xl p-4 space-y-3">
-                <span className="font-bold text-[#164e43] block">Address Information</span>
-                <PhAddressSelect value={address} onChange={setAddress} />
-              </div>
-
-              <div className="flex gap-3 pt-2">
-                <button
-                  type="submit"
-                  className="bg-[#164e43] hover:bg-[#0f362e] text-white px-5 py-2.5 rounded-xl font-bold text-xs transition cursor-pointer"
-                >
-                  Save Changes
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setIsEditingProfile(false)}
-                  className="bg-gray-200 hover:bg-gray-300 text-gray-700 px-5 py-2.5 rounded-xl font-bold text-xs transition cursor-pointer"
-                >
-                  Cancel
-                </button>
-              </div>
-            </form>
+            <SelfProfile
+              user={user}
+              role="dentist"
+              onSaved={handleProfileUpdated}
+              onCancel={() => setIsEditingProfile(false)}
+              beforeSave={async () => (await requireOnShift()) ? '' : 'Time-in is required before editing your profile.'}
+            />
           )}
         </div>
       )}

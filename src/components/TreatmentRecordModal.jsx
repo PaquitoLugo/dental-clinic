@@ -46,7 +46,7 @@ export default function TreatmentRecordModal({ appointment, record, canEdit = fa
     }, { onConflict: 'appointment_id' });
     setSaving(false);
     if (err) {
-      setError(`Could not save: ${err.message}. If the table is missing, run supabase_migration.sql.`);
+      setError(`Could not save: ${err.message}. Ensure the treatment_records table exists and run supabase db push to apply pending migrations.`);
       return;
     }
     await recordActivity(activityUser, {

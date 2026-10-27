@@ -60,7 +60,17 @@ export default function AssistantModule({ appointments = [], updateAppointmentSt
     currentUser.current = user;
     refreshDataRef.current = refreshData;
   }, [user, refreshData]);
-  const { record: attendanceRecord, loading: attendanceLoading, saving: attendanceSaving, message: attendanceMessage, clockIn, clockOut, checkPendingPatients } = useAttendance(user, ASSISTANT_WORKING_HOURS);
+  const {
+    record: attendanceRecord,
+    loading: attendanceLoading,
+    saving: attendanceSaving,
+    message: attendanceMessage,
+    clockIn,
+    clockOut,
+    cancelClockIn,
+    cancelClockOut,
+    checkPendingPatients,
+  } = useAttendance(user, ASSISTANT_WORKING_HOURS);
   const attendanceLog = {
     timeIn: formatClockTime(attendanceRecord?.clock_in),
     timeOut: formatClockTime(attendanceRecord?.clock_out),
@@ -173,6 +183,18 @@ export default function AssistantModule({ appointments = [], updateAppointmentSt
     }
     if (!(await dialog.confirm('Are you sure you want to record your time-out?', { title: 'Confirm time-out', confirmText: 'Time-Out' }))) return;
     await clockOut();
+  };
+
+  const handleCancelClockIn = async () => {
+    if (!(await requireActiveAccount())) return;
+    if (!(await dialog.confirm('Cancel your time-in for today?', { title: 'Cancel time-in', confirmText: 'Cancel Time-In' }))) return;
+    await cancelClockIn();
+  };
+
+  const handleCancelClockOut = async () => {
+    if (!(await requireActiveAccount())) return;
+    if (!(await dialog.confirm('Cancel your time-out and return to an active shift?', { title: 'Cancel time-out', confirmText: 'Cancel Time-Out' }))) return;
+    await cancelClockOut();
   };
 
   // Doctors come from the shared context; fall back to a direct query if it has none
@@ -551,6 +573,11 @@ export default function AssistantModule({ appointments = [], updateAppointmentSt
             <div className="flex gap-2">
               <button type="button" onClick={handleClockIn} disabled={attendanceLoading || attendanceSaving || attendanceLog.timeIn !== null} className="bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white px-3 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer shadow-2xs">Time-In</button>
               <button type="button" onClick={handleClockOut} disabled={attendanceLoading || attendanceSaving || attendanceLog.timeIn === null || attendanceLog.timeOut !== null} className="bg-amber-600 hover:bg-amber-700 disabled:opacity-50 text-white px-3 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer shadow-2xs">Time-Out</button>
+              {attendanceRecord?.clock_out ? (
+                <button type="button" onClick={handleCancelClockOut} disabled={attendanceLoading || attendanceSaving} className="border border-amber-300 text-amber-800 hover:bg-amber-50 disabled:opacity-50 px-3 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer">Cancel Time-Out</button>
+              ) : attendanceRecord?.clock_in ? (
+                <button type="button" onClick={handleCancelClockIn} disabled={attendanceLoading || attendanceSaving} className="border border-red-200 text-red-700 hover:bg-red-50 disabled:opacity-50 px-3 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer">Cancel Time-In</button>
+              ) : null}
             </div>
           </div>
           <span className="bg-[#e3ede6] text-[#164e43] text-xs font-bold px-4 py-1.5 rounded-full border border-[#d4e2dc]">

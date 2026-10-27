@@ -92,6 +92,26 @@ export default function useAttendance(user, workingHours = { timeIn: '08:00', ti
     }
   };
 
+  const checkCompletedAppointments = async () => {
+    if (user?.role !== 'dentist') return null;
+    try {
+      let query = supabase.from('appointments')
+        .select('id', { count: 'exact', head: true })
+        .eq('status', 'Completed')
+        .eq('appointment_date', today);
+      if (user.name) query = query.eq('assigned_dentist', user.name);
+      const { count, error } = await query;
+      if (error) throw error;
+      return count
+        ? 'Time-in cannot be cancelled after you have completed an appointment today.'
+        : null;
+    } catch (error) {
+      const message = `Could not verify completed appointments: ${error.message}`;
+      setMessage(message);
+      return message;
+    }
+  };
+
   const clockIn = async () => {
     if (!user?.id || record?.clock_in || saving) return false;
     const parseMinutes = (value) => {
@@ -171,5 +191,55 @@ export default function useAttendance(user, workingHours = { timeIn: '08:00', ti
     }
   };
 
-  return { record, loading, saving, message, clockIn, clockOut, refresh, checkClockedIn, checkPendingPatients };
+  const cancelClockOut = async () => {
+    if (!record?.id || !record.clock_out || saving) return false;
+    setSaving(true);
+    setMessage('');
+    try {
+      const { data, error } = await supabase.from('staff_attendance')
+        .update({ clock_out: null })
+        .eq('id', record.id)
+        .select()
+        .single();
+      if (error) throw error;
+      setRecord(data);
+      await recordActivity(user, { action: 'Cancelled time-out', entityType: 'staff_attendance', entityId: data.id });
+      return true;
+    } catch (error) {
+      setMessage(`Could not cancel time-out: ${error.message}`);
+      return false;
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const cancelClockIn = async () => {
+    if (!record?.id || !record.clock_in || record.clock_out || saving) return false;
+    const completedAppointmentMessage = await checkCompletedAppointments();
+    if (completedAppointmentMessage) {
+      setMessage(completedAppointmentMessage);
+      return false;
+    }
+    setSaving(true);
+    setMessage('');
+    try {
+      const { error } = await supabase.from('staff_attendance')
+        .delete()
+        .eq('id', record.id)
+      if (error) throw error;
+      setRecord(null);
+      await recordActivity(user, { action: 'Cancelled time-in', entityType: 'staff_attendance', entityId: record.id });
+      return true;
+    } catch (error) {
+      setMessage(`Could not cancel time-in: ${error.message}`);
+      return false;
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return {
+    record, loading, saving, message, clockIn, clockOut, cancelClockIn, cancelClockOut,
+    refresh, checkClockedIn, checkPendingPatients, checkCompletedAppointments,
+  };
 }

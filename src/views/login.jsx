@@ -1,5 +1,4 @@
-import React, { useState } from 'react';
-import bcrypt from 'bcryptjs';
+import { useState } from 'react';
 import emailjs from '@emailjs/browser';
 import { supabase } from '../lib/supabase';
 import RegisterModal from '../components/RegisterModal';
@@ -29,40 +28,32 @@ export default function Login({ onLogin }) {
 
     try {
       const inputVal = username.trim().toLowerCase();
-
-      // Fetch account by matching either username OR email
-      const { data, error } = await supabase
-        .from('staff_users')
-        .select('*')
-        .or(`username.eq.${inputVal},email.eq.${inputVal}`)
-        .maybeSingle();
+      const { data, error } = await supabase.functions.invoke('staff-login', {
+        body: { username: inputVal, password: password.trim() },
+      });
 
       if (error || !data) {
-        setErrorMsg('Invalid username/email or password. Please check your credentials.');
+        throw new Error(error?.message || 'Authentication service is unavailable.');
+      }
+
+      if (!data.ok) {
+        const messages = {
+          INVALID_CREDENTIALS: 'Invalid username/email or password. Please check your credentials.',
+          ARCHIVED: 'This account is archived. Please contact the clinic manager for assistance.',
+          PENDING: 'Your account is still waiting for verification by the clinic manager. Please try again later.',
+          REJECTED: 'Your registration was not approved. Please contact the clinic for assistance.',
+          RATE_LIMITED: 'Too many sign-in attempts. Please wait 15 minutes before trying again.',
+        };
+        setErrorMsg(messages[data.code] || 'Authentication service is unavailable. Please try again later.');
         return;
       }
 
-      const isPasswordValid = await bcrypt.compare(password.trim(), data.password);
-
-      if (!isPasswordValid) {
-        setErrorMsg('Invalid username/email or password. Please check your credentials.');
-        return;
-      }
-
-      if (data.archived_at) {
-        setErrorMsg('This account is archived. Please contact the clinic manager for assistance.');
-      } else {
-        const status = data.account_status || 'Approved';
-        if (status === 'Pending') {
-          setErrorMsg('Your account is still waiting for verification by the clinic manager. Please try again later.');
-        } else if (status === 'Rejected') {
-          setErrorMsg('Your registration was not approved. Please contact the clinic for assistance.');
-        } else {
-          onLogin(data.role, data.full_name, data.id);
-        }
-      }
+      const { error: sessionError } = await supabase.auth.setSession(data.session);
+      if (sessionError) throw sessionError;
+      onLogin(data.user.role, data.user.full_name, data.user.id);
     } catch (err) {
-      setErrorMsg('Database connection error.');
+      console.error('Staff sign-in failed:', err);
+      setErrorMsg('Sign-in is temporarily unavailable. Please try again later.');
     } finally {
       setIsLoading(false);
     }
