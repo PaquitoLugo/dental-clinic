@@ -52,12 +52,20 @@ export default function ResetPassword({ token, onComplete }) {
     setErrorMsg(''); // Clear previous error messages
     setSuccessMsg('');
 
-    if (newPassword !== confirmPassword) {
-      setErrorMsg('Passwords do not match.');
+    if (!newPassword) {
+      setErrorMsg('Password is required.');
       return;
     }
-    if (newPassword.length < 6) {
-      setErrorMsg('Password must be at least 6 characters long.');
+    if (newPassword.length < 12) {
+      setErrorMsg('Password must be at least 12 characters.');
+      return;
+    }
+    if (!/[A-Z]/.test(newPassword) || !/[a-z]/.test(newPassword) || !/[0-9]/.test(newPassword) || !/[^A-Za-z0-9]/.test(newPassword)) {
+      setErrorMsg('Password must include uppercase, lowercase, number, and special character.');
+      return;
+    }
+    if (newPassword !== confirmPassword) {
+      setErrorMsg('Passwords do not match.');
       return;
     }
     if (!userId) {
