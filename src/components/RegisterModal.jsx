@@ -127,6 +127,7 @@ export default function RegisterModal({ isOpen, onClose, onSuccess }) {
         country: address.countryName,
         countryCode: address.countryCode,
         regionCode: address.countryCode === 'PH' ? address.regionCode : '',
+        cityCode: address.countryCode === 'PH' ? address.cityCode : '',
       });
       if (requestGeneration !== postalLookupGeneration.current) return;
       if (postalCode) {
@@ -164,6 +165,7 @@ export default function RegisterModal({ isOpen, onClose, onSuccess }) {
     }
   }, [
     address.cityName,
+    address.cityCode,
     address.countryCode,
     address.countryName,
     address.provinceName,
@@ -173,7 +175,7 @@ export default function RegisterModal({ isOpen, onClose, onSuccess }) {
   ]);
 
   useEffect(() => {
-    if (address.countryCode !== 'PH' || !address.cityCode || address.regionCode === '1300000000') return undefined;
+    if (address.countryCode !== 'PH' || !address.cityCode) return undefined;
     const timer = window.setTimeout(() => handlePostalLookup(), 0);
     return () => window.clearTimeout(timer);
   }, [address.cityCode, address.countryCode, address.countryName, address.regionCode, address.regionName, handlePostalLookup]);
@@ -574,7 +576,7 @@ export default function RegisterModal({ isOpen, onClose, onSuccess }) {
                 <label className={labelClass}>Mobile number *</label>
                 <div className="flex items-center gap-2">
                   <span className="rounded-xl border border-[#d4e2dc] bg-[#f5f7f6] px-3 py-2.5 text-xs font-bold text-[#607368]">{getPhoneCallingCode(address.countryCode)}</span>
-                  <input required type="tel" inputMode="numeric" maxLength={15} autoComplete="tel-national" placeholder="Enter your national number" className={getInputStyle('mobileNumber')} value={form.mobileNumber} onChange={handleChange('mobileNumber')} onBlur={handleBlur('mobileNumber')} />
+                  <input required type="tel" inputMode="numeric" maxLength={address.countryCode === 'PH' ? 10 : 15} pattern={address.countryCode === 'PH' ? '9[0-9]{9}' : undefined} autoComplete="tel-national" placeholder={address.countryCode === 'PH' ? '9XXXXXXXXX' : 'Enter your national number'} className={getInputStyle('mobileNumber')} value={form.mobileNumber} onChange={handleChange('mobileNumber')} onBlur={handleBlur('mobileNumber')} />
                 </div>
                 <p className="text-[10px] text-[#607368] mt-1">Enter the number for the selected country, without the country calling code.</p>
                 {touched.mobileNumber && errors.mobileNumber && <p className="text-red-500 text-[10px] mt-1 font-semibold">{errors.mobileNumber}</p>}
@@ -648,9 +650,10 @@ export default function RegisterModal({ isOpen, onClose, onSuccess }) {
                         required={form.isGuardian}
                         type="tel"
                         inputMode="numeric"
-                        maxLength={15}
+                        maxLength={address.countryCode === 'PH' ? 10 : 15}
+                        pattern={address.countryCode === 'PH' ? '9[0-9]{9}' : undefined}
                         autoComplete="tel-national"
-                        placeholder="Enter national number"
+                        placeholder={address.countryCode === 'PH' ? '9XXXXXXXXX' : 'Enter national number'}
                         className={getInputStyle('guardianContact')}
                         value={form.guardianContact}
                         onChange={handleChange('guardianContact')}

@@ -1,3 +1,5 @@
+import { supabase } from './supabase';
+
 const PH_NCR_REGION_CODE = '1300000000';
 
 const STATIC_POSTAL_CODES = new Map([
@@ -37,9 +39,23 @@ let lastLookupAt = 0;
 
 const wait = (milliseconds) => new Promise((resolve) => window.setTimeout(resolve, milliseconds));
 
-export async function lookupPostalCode({ city, region, parentRegion, country, countryCode, regionCode }) {
+export async function lookupPostalCode({ city, region, parentRegion, country, countryCode, regionCode, cityCode }) {
   const key = [countryCode, regionCode || region, parentRegion, city].map(normalize).join('|');
   if (postalCodeCache.has(key)) return postalCodeCache.get(key);
+
+  if (countryCode === 'PH' && regionCode === PH_NCR_REGION_CODE) {
+    let query = supabase.from('postal_codes').select('postal_code').eq('country_code', 'PH').eq('region_code', PH_NCR_REGION_CODE);
+    query = cityCode
+      ? query.eq('city_code', cityCode)
+      : query.ilike('city_name', city.trim());
+    const { data, error } = await query.maybeSingle();
+    if (error) {
+      console.warn('Could not load the saved NCR postal code:', error.message);
+    } else if (data?.postal_code) {
+      postalCodeCache.set(key, data.postal_code);
+      return data.postal_code;
+    }
+  }
 
   const delay = Math.max(0, 1100 - (Date.now() - lastLookupAt));
   if (delay) await wait(delay);
