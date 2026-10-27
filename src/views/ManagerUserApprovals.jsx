@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
+import emailjs from '@emailjs/browser';
 import { supabase } from '../lib/supabase';
 import { recordActivity } from '../lib/activityLog';
 
@@ -63,10 +64,41 @@ export default function ManagerUserApprovals({ user }) {
       entityType: 'staff_user',
       entityId: account.id,
     });
+
+    // Send email notification via EmailJS (template_ku7y506)
+    let emailSent = false;
+    if (account.email) {
+      try {
+        const isApproved = decision === 'Approved';
+        await emailjs.send(
+          'service_0cds2eo',
+          'template_ku7y506',
+          {
+            to_email: account.email,
+            to_name: account.full_name || account.username,
+            account_status: isApproved ? 'Approved' : 'Rejected',
+            status_message: isApproved
+              ? 'Great news! Your LumiDent account registration has been reviewed and approved by the clinic manager. You can now log into your account to book appointments and view records.'
+              : 'Your LumiDent account registration request was not approved at this time. Please contact the clinic office for further assistance.',
+            login_url: 'https://lumident-dental-clinic-blue.vercel.app'
+          },
+          'zuGkiLgb_lQ8-D6fJ'
+        );
+        emailSent = true;
+      } catch (emailError) {
+        console.error('Failed to send EmailJS status update:', emailError);
+      }
+    }
+
     setAccounts((previous) => previous.filter((item) => item.id !== account.id));
+    
+    const emailNotice = emailSent 
+      ? ' and notified by email' 
+      : (account.email ? ' (email delivery failed)' : '');
+
     setMessage(logged
-      ? `${account.full_name}'s account was ${decision === 'Approved' ? 'approved' : 'rejected'}.`
-      : `${account.full_name}'s account was updated, but its activity log could not be recorded.`);
+      ? `${account.full_name}'s account was ${decision === 'Approved' ? 'approved' : 'rejected'}${emailNotice}.`
+      : `${account.full_name}'s account was updated${emailNotice}, but its activity log could not be recorded.`);
     setUpdatingId(null);
   };
 
@@ -125,10 +157,10 @@ export default function ManagerUserApprovals({ user }) {
                         : 'No'}
                     </td>
                     <td className="space-x-2 whitespace-nowrap px-2 py-3 text-right">
-                      <button type="button" onClick={() => decideAccount(account, 'Approved')} disabled={updatingId === account.id} className="rounded-lg bg-emerald-600 px-3 py-1.5 font-bold text-white disabled:opacity-50">
+                      <button type="button" onClick={() => decideAccount(account, 'Approved')} disabled={updatingId === account.id} className="rounded-lg bg-emerald-600 px-3 py-1.5 font-bold text-white disabled:opacity-50 cursor-pointer">
                         {updatingId === account.id ? 'Saving…' : 'Approve'}
                       </button>
-                      <button type="button" onClick={() => decideAccount(account, 'Rejected')} disabled={updatingId === account.id} className="rounded-lg border border-red-200 px-3 py-1.5 font-bold text-red-700 disabled:opacity-50">
+                      <button type="button" onClick={() => decideAccount(account, 'Rejected')} disabled={updatingId === account.id} className="rounded-lg border border-red-200 px-3 py-1.5 font-bold text-red-700 disabled:opacity-50 cursor-pointer">
                         Reject
                       </button>
                     </td>
