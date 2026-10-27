@@ -696,57 +696,61 @@ export default function ManagerModule({ services, addService, updateService, del
           </header>
 
           <div className="flex-1 min-h-0 bg-white border border-[#d4e2dc] rounded-2xl p-4 flex flex-col overflow-hidden">
-            <div className={`grid grid-cols-7 gap-2 mb-2 font-bold text-[#607368] ${calendarMode === 'week' ? 'text-sm' : 'text-xs'}`}>
-              {['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'].map(day => (
-                <div key={day} className="px-2">{day.slice(0, 3)}</div>
-              ))}
-            </div>
+            <div className="min-h-0 flex-1 overflow-auto">
+              <div className="flex h-full min-w-[700px] flex-col">
+                <div className={`grid grid-cols-7 gap-2 mb-2 font-bold text-[#607368] ${calendarMode === 'week' ? 'text-sm' : 'text-xs'}`}>
+                  {['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'].map(day => (
+                    <div key={day} className="px-2">{day.slice(0, 3)}</div>
+                  ))}
+                </div>
 
-            {calendarMode === 'week' ? (
-              <div className="flex-1 min-h-0 grid grid-cols-7 gap-2">
-                {calendarDays.map(day => {
-                  const key = dateKey(day);
-                  const dayAppointments = appointmentsByDate[key] || [];
-                  return (
-                    <div key={key} className={`min-w-0 rounded-xl border p-2 flex flex-col ${key === todayKey ? 'border-[#4c9a84] bg-[#f5f9f7]' : 'border-[#e5ece8] bg-[#f8faf9]'}`}>
-                      <div className={`text-base font-black mb-2 ${key === todayKey ? 'text-[#164e43]' : 'text-[#13241b]'}`}>
-                        {day.toLocaleDateString('en-US', { weekday: 'short', day: 'numeric' })}
-                      </div>
-                      <div className="flex-1 overflow-y-auto space-y-1.5">
-                        {dayAppointments.map(appointment => (
-                          <article key={appointment.id} title={`${appointment.patient_name || 'Patient'} · ${appointment.status}`} className={`border-l-4 rounded-md px-2 py-1.5 text-xs leading-tight text-[#13241b] break-words ${appointmentStatusColor(appointment.status)}`}>
-                            <span className="font-black">{formatTime(appointment.appointment_time)}</span>{' '}
-                            <span>{appointment.patient_name || 'Patient'}</span>
-                          </article>
-                        ))}
-                      </div>
-                    </div>
-                  );
-                })}
+                {calendarMode === 'week' ? (
+                  <div className="flex-1 min-h-0 grid grid-cols-7 gap-2">
+                    {calendarDays.map(day => {
+                      const key = dateKey(day);
+                      const dayAppointments = appointmentsByDate[key] || [];
+                      return (
+                        <div key={key} className={`min-w-0 rounded-xl border p-2 flex flex-col ${key === todayKey ? 'border-[#4c9a84] bg-[#f5f9f7]' : 'border-[#e5ece8] bg-[#f8faf9]'}`}>
+                          <div className={`text-base font-black mb-2 ${key === todayKey ? 'text-[#164e43]' : 'text-[#13241b]'}`}>
+                            {day.toLocaleDateString('en-US', { weekday: 'short', day: 'numeric' })}
+                          </div>
+                          <div className="flex-1 overflow-y-auto space-y-1.5">
+                            {dayAppointments.map(appointment => (
+                              <article key={appointment.id} title={`${appointment.patient_name || 'Patient'} · ${appointment.status}`} className={`border-l-4 rounded-md px-2 py-1.5 text-xs leading-tight text-[#13241b] break-words ${appointmentStatusColor(appointment.status)}`}>
+                                <span className="font-black">{formatTime(appointment.appointment_time)}</span>{' '}
+                                <span>{appointment.patient_name || 'Patient'}</span>
+                              </article>
+                            ))}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                ) : (
+                  <div className="flex-1 min-h-0 grid grid-cols-7 grid-rows-6 gap-2 overflow-y-auto">
+                    {calendarDays.map(day => {
+                      const key = dateKey(day);
+                      const dayAppointments = appointmentsByDate[key] || [];
+                      const isCurrentMonth = day.getMonth() === calendarDate.getMonth();
+                      return (
+                        <div key={key} className={`min-h-[90px] min-w-0 rounded-xl border p-2 flex flex-col ${key === todayKey ? 'border-[#4c9a84] bg-[#f5f9f7]' : 'border-[#e5ece8] bg-[#f8faf9]'} ${isCurrentMonth ? '' : 'opacity-50'}`}>
+                          <div className="text-sm font-black text-[#13241b] mb-1">{day.getDate()}</div>
+                          <div className="space-y-1 overflow-y-auto">
+                            {dayAppointments.slice(0, 3).map(appointment => (
+                              <article key={appointment.id} title={`${appointment.patient_name || 'Patient'} · ${appointment.status}`} className={`border-l-4 rounded px-1.5 py-1 text-xs leading-tight text-[#13241b] break-words ${appointmentStatusColor(appointment.status)}`}>
+                                <span className="font-black">{formatTime(appointment.appointment_time)}</span>{' '}
+                                <span>{appointment.patient_name || 'Patient'}</span>
+                              </article>
+                            ))}
+                            {dayAppointments.length > 3 && <p className="text-xs font-bold text-[#607368] px-1">+{dayAppointments.length - 3} more</p>}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
               </div>
-            ) : (
-              <div className="flex-1 min-h-0 grid grid-cols-7 grid-rows-6 gap-2 overflow-y-auto">
-                {calendarDays.map(day => {
-                  const key = dateKey(day);
-                  const dayAppointments = appointmentsByDate[key] || [];
-                  const isCurrentMonth = day.getMonth() === calendarDate.getMonth();
-                  return (
-                    <div key={key} className={`min-h-[90px] min-w-0 rounded-xl border p-2 flex flex-col ${key === todayKey ? 'border-[#4c9a84] bg-[#f5f9f7]' : 'border-[#e5ece8] bg-[#f8faf9]'} ${isCurrentMonth ? '' : 'opacity-50'}`}>
-                      <div className="text-sm font-black text-[#13241b] mb-1">{day.getDate()}</div>
-                      <div className="space-y-1 overflow-y-auto">
-                        {dayAppointments.slice(0, 3).map(appointment => (
-                          <article key={appointment.id} title={`${appointment.patient_name || 'Patient'} · ${appointment.status}`} className={`border-l-4 rounded px-1.5 py-1 text-xs leading-tight text-[#13241b] break-words ${appointmentStatusColor(appointment.status)}`}>
-                            <span className="font-black">{formatTime(appointment.appointment_time)}</span>{' '}
-                            <span>{appointment.patient_name || 'Patient'}</span>
-                          </article>
-                        ))}
-                        {dayAppointments.length > 3 && <p className="text-xs font-bold text-[#607368] px-1">+{dayAppointments.length - 3} more</p>}
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            )}
+            </div>
 
             <div className="flex flex-wrap gap-x-4 gap-y-2 mt-3 pt-3 border-t border-[#e5ece8] text-xs text-[#607368]">
               {['Pending', 'Accepted', 'In Queue', 'In Treatment', 'Completed', 'Rejected'].map(status => (

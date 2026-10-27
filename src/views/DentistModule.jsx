@@ -1143,7 +1143,7 @@ export default function DentistModule({
 
           {!isEditingProfile ? (
             <div className="bg-white border border-[#d4e2dc] rounded-2xl p-6 max-w-2xl space-y-4 text-xs shadow-2xs">
-              <div className="grid grid-cols-3 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                 <div>
                   <span className="font-bold text-[#607368] block">First Name:</span>
                   <p className="font-black text-sm text-[#13241b] mt-1">{firstName || 'N/A'}</p>

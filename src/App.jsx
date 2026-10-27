@@ -232,7 +232,7 @@ function MainWorkspace({ authenticatedUser, handleLogout, onProfileUpdated }) {
         </div>
       </aside>
 
-      <main className="workspace-main min-w-0 min-h-0 flex-1 h-full overflow-hidden p-3 lg:p-8 flex flex-col">
+      <main className="workspace-main min-w-0 min-h-0 flex-1 lg:h-full overflow-hidden p-3 lg:p-8 flex flex-col">
         {isManager && <ManagerModule {...contextData} currentView={currentView} user={authenticatedUser} />}
         {isDentist && (
           <DentistModule 
