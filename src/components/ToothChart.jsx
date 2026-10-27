@@ -451,18 +451,17 @@ export default function ToothChart({ patientId, patientName, canEdit = false, ed
         {loading ? (
           <div className="py-10 text-center text-xs font-bold text-[#607368]">Loading chart...</div>
         ) : (
-          <div className="space-y-1">
-            <div className="flex justify-between text-[10px] font-black uppercase tracking-wider text-[#607368] px-1"><span>Patient's right</span><span>Upper</span><span>Patient's left</span></div>
-            <Arch numbers={UPPER} chart={chart} selected={selected} onSelect={selectTooth} flipped={false} recent={recentTeeth} />
-            <div className="border-t border-dashed border-[#d4e2dc]" />
-            <Arch numbers={LOWER} chart={chart} selected={selected} onSelect={selectTooth} flipped recent={recentTeeth} />
-            <div className="flex justify-between text-[10px] font-black uppercase tracking-wider text-[#607368] px-1"><span>Patient's right</span><span>Lower</span><span>Patient's left</span></div>
-            <SupernumeraryChartRow
-              teeth={supernumeraryTeeth}
-              selected={selected}
-              onSelect={selectTooth}
-              recent={recentTeeth}
-            />
+          <div className="space-y-3">
+            <div className="overflow-x-auto pb-2">
+              <div className="min-w-[736px] space-y-1">
+                <div className="flex justify-between text-[10px] font-black uppercase tracking-wider text-[#607368] px-1"><span>Patient's right</span><span>Upper</span><span>Patient's left</span></div>
+                <Arch numbers={UPPER} chart={chart} selected={selected} onSelect={selectTooth} flipped={false} recent={recentTeeth} />
+                <div className="border-t border-dashed border-[#d4e2dc]" />
+                <Arch numbers={LOWER} chart={chart} selected={selected} onSelect={selectTooth} flipped recent={recentTeeth} />
+                <div className="flex justify-between text-[10px] font-black uppercase tracking-wider text-[#607368] px-1"><span>Patient's right</span><span>Lower</span><span>Patient's left</span></div>
+              </div>
+            </div>
+            <SupernumeraryChartRow teeth={supernumeraryTeeth} selected={selected} onSelect={selectTooth} recent={recentTeeth} />
           </div>
         )}
 

@@ -72,7 +72,7 @@ export default function PatientPortal({ onLoginClick }) {
     <div className="min-h-screen w-full bg-[#f4f7f6] font-sans text-[#13241b] flex flex-col overflow-y-auto">
       
       {/* TOP HEADER BAR */}
-      <header className="w-full bg-white border-b border-[#d4e2dc] px-8 py-4 flex items-center justify-between shadow-2xs">
+      <header className="w-full bg-white border-b border-[#d4e2dc] px-4 sm:px-8 py-3 sm:py-4 flex items-center justify-between gap-3 shadow-2xs">
         <div className="flex items-center gap-3">
           <div className="w-10 h-10 rounded-xl bg-[#164e43] text-white flex items-center justify-center font-bold text-lg shadow-2xs">
             🦷
@@ -81,7 +81,7 @@ export default function PatientPortal({ onLoginClick }) {
             <h1 className="font-black text-sm leading-tight text-[#13241b]">
               LumiDent
             </h1>
-            <p className="text-[10px] text-[#607368] font-bold uppercase tracking-wider">
+            <p className="hidden sm:block text-[10px] text-[#607368] font-bold uppercase tracking-wider">
               PATIENT SCHEDULER & CHARTING SYSTEM
             </p>
           </div>
@@ -102,7 +102,7 @@ export default function PatientPortal({ onLoginClick }) {
       <main className="flex-1 max-w-5xl w-full mx-auto px-4 py-8 space-y-6 pb-20">
         
         {/* Hero Action Banner */}
-        <div className="bg-white border border-[#d4e2dc] rounded-2xl p-8 shadow-2xs space-y-6">
+        <div className="bg-white border border-[#d4e2dc] rounded-2xl p-4 sm:p-8 shadow-2xs space-y-6">
           <div>
             <h2 className="text-3xl font-black text-[#13241b] tracking-tight uppercase">
               LumiDent Online Appointment
