@@ -187,29 +187,15 @@ export default function AppointmentRegistrationWizard({
     setFormError('');
   };
 
-  // Toggle multi-select / deselect service
-  const handleToggleService = (service) => {
+  const handleSelectService = (service) => {
     setFormError('');
-    setFormData(prev => {
-      const exists = prev.selectedServices.some(s => s.id === service.id);
-      if (exists) {
-        return {
-          ...prev,
-          selectedServices: prev.selectedServices.filter(s => s.id !== service.id)
-        };
-      } else {
-        return {
-          ...prev,
-          selectedServices: [...prev.selectedServices, service]
-        };
-      }
-    });
+    setFormData(prev => ({ ...prev, selectedServices: [service] }));
   };
 
   const handleNext = () => {
     setFormError('');
-    if (currentStep === 1 && formData.selectedServices.length === 0) {
-      setFormError('Please select at least one dental service to continue.');
+    if (currentStep === 1 && formData.selectedServices.length !== 1) {
+      setFormError('Please select one dental service to continue.');
       return;
     }
     if (currentStep === 2 && !selectedDentist) {
@@ -249,6 +235,10 @@ export default function AppointmentRegistrationWizard({
   };
 
   const handleConfirmAppointment = async () => {
+    if (formData.selectedServices.length !== 1) {
+      setFormError('Please select one dental service before submitting your appointment request.');
+      return;
+    }
     if (!formData.consentUseInfo || !formData.confirmInfoCorrect) {
       setFormError('Please check both consent and confirmation boxes to submit.');
       return;
@@ -300,8 +290,8 @@ export default function AppointmentRegistrationWizard({
         patient_name: patient.full_name || patient.name,
         contact_number: mobile,
         email: patient.email || null,
-        service_name: formData.selectedServices.map(s => s.service_name).join(', '),
-        service_price: selectedTotal,
+        service_name: formData.selectedServices[0].service_name,
+        service_price: Number(formData.selectedServices[0].price || 0),
         assigned_dentist: dentistName,
         appointment_date: formData.appointmentDate,
         appointment_time: slotStart24(formData.appointmentTime),
@@ -393,8 +383,8 @@ export default function AppointmentRegistrationWizard({
               <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_300px] 2xl:grid-cols-[minmax(0,1fr)_340px] gap-4 sm:gap-6 flex-1 min-h-0">
                 <section className="min-h-0 flex flex-col">
                   <div className="mb-3">
-                    <h3 className="text-xl sm:text-2xl font-black">{selectedCategory ? `${selectedCategory} Services` : 'Select Services'}</h3>
-                    <p className="text-sm text-[#607368] mt-0.5">Pick one or more services. You can review everything before confirming.</p>
+                    <h3 className="text-xl sm:text-2xl font-black">{selectedCategory ? `${selectedCategory} Services` : 'Select a service'}</h3>
+                    <p className="text-sm text-[#607368] mt-0.5">Choose one service for this appointment.</p>
                   </div>
                   <div className="flex gap-2 mb-2 flex-wrap">
                     <input aria-label="Search services" value={serviceSearch} onChange={e => { setServiceSearch(e.target.value); setServicePage(1); }} placeholder="Search services" className="min-w-36 flex-1 border border-[#d4e2dc] bg-white rounded-lg px-4 py-2.5 text-sm outline-none focus:border-[#164e43]" />
@@ -402,10 +392,10 @@ export default function AppointmentRegistrationWizard({
                   </div>
                   <div className="flex-1 min-h-0">
                     {loadingServices ? <div className="py-12 text-center text-xs font-bold text-[#607368]">Loading services...</div> : filteredServices.length === 0 ? <div className="py-8 text-center text-xs text-gray-500">No active services match your search.</div> : (
-                      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 min-[1700px]:grid-cols-5 gap-3 sm:gap-4 content-start">
+                      <div role="radiogroup" aria-label="Choose one dental service" className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 min-[1700px]:grid-cols-5 gap-3 sm:gap-4 content-start">
                         {pagedServices.map(service => {
                           const isSelected = formData.selectedServices.some(s => s.id === service.id);
-                          return <button type="button" key={service.id} onClick={() => handleToggleService(service)} className={`text-left border rounded-2xl px-5 py-4 h-[124px] flex flex-col justify-between cursor-pointer transition ${isSelected ? 'border-[#164e43] bg-[#eef5f2] ring-1 ring-[#164e43]' : 'bg-white border-[#d4e2dc] hover:border-[#a3c4b8]'}`}>
+                          return <button type="button" role="radio" aria-checked={isSelected} key={service.id} onClick={() => handleSelectService(service)} className={`text-left border rounded-2xl px-5 py-4 h-[124px] flex flex-col justify-between cursor-pointer transition ${isSelected ? 'border-[#164e43] bg-[#eef5f2] ring-1 ring-[#164e43]' : 'bg-white border-[#d4e2dc] hover:border-[#a3c4b8]'}`}>
                             <div className="flex items-start justify-between gap-3"><h4 className="font-bold text-base leading-tight text-[#13241b]">{service.service_name}</h4><span className="shrink-0 text-sm font-black text-[#164e43]">&#8369;{Number(service.price).toLocaleString()}</span></div>
                             <div className="flex justify-between items-center"><span className="text-sm text-[#71827c]">{service.duration || service.duration_minutes ? `About ${service.duration || service.duration_minutes} min` : 'Dental service'}</span><span className={`w-5 h-5 rounded-full border flex items-center justify-center ${isSelected ? 'bg-[#164e43] border-[#164e43] text-white' : 'border-[#a9bbb3]'}`}>{isSelected && <span className="text-sm">&#10003;</span>}</span></div>
                           </button>;
@@ -419,7 +409,7 @@ export default function AppointmentRegistrationWizard({
                   </div>
                 </section>
                 <aside className="h-fit lg:mt-4 border border-[#d4e2dc] bg-white rounded-2xl p-5 text-sm">
-                  <h4 className="font-black text-lg">Your appointment</h4><p className="text-[13px] text-[#607368] mt-1">{formData.selectedServices.length} services selected</p>
+                  <h4 className="font-black text-lg">Your appointment</h4><p className="text-[13px] text-[#607368] mt-1">{formData.selectedServices.length === 1 ? '1 service selected' : 'Choose one service'}</p>
                   <div className="mt-4 space-y-3 max-h-48 overflow-y-auto">{formData.selectedServices.map(service => <div key={service.id} className="flex justify-between gap-2"><span>{service.service_name}</span><b>&#8369;{Number(service.price).toLocaleString()}</b></div>)}{formData.selectedServices.length === 0 && <p className="text-[#71827c]">Choose a service to get started.</p>}</div>
                   <div className="mt-4 pt-4 border-t border-[#e7eeea] flex justify-between items-center"><span className="text-[#607368]">Estimated total</span><strong className="text-2xl text-[#164e43]">&#8369;{selectedTotal.toLocaleString()}</strong></div>
                   <button type="button" onClick={handleNext} disabled={formData.selectedServices.length === 0} className="w-full mt-4 bg-[#164e43] text-white py-3 rounded-lg font-bold text-sm disabled:opacity-50">Continue to date &amp; time &#8594;</button>
@@ -434,7 +424,7 @@ export default function AppointmentRegistrationWizard({
             <div className="space-y-6">
               <h3 className="text-2xl font-black text-[#13241b]">Choose an appointment date</h3>
               <div className="bg-[#eaf4ef] border border-[#bcd7ca] rounded-2xl p-5 space-y-1 text-xs text-[#164e43]">
-                <p className="font-bold">Selected Services:</p>
+                <p className="font-bold">Selected service:</p>
                 <ul className="list-disc list-inside font-bold pt-1">
                   {formData.selectedServices.map(s => <li key={s.id}>{s.service_name}</li>)}
                 </ul>
@@ -536,8 +526,8 @@ export default function AppointmentRegistrationWizard({
               <h3 className="text-2xl font-black text-[#13241b]">Please review your appointment information</h3>
               <div className="bg-[#f8faf9] border border-[#d4e2dc] rounded-2xl p-6 space-y-4 text-xs">
                 <div className="flex justify-between border-b border-[#e5ece8] pb-3">
-                  <span className="font-bold text-[#607368]">Selected Services</span>
-                  <span className="font-black text-[#13241b] text-right">{formData.selectedServices.map(s => s.service_name).join(', ')}</span>
+                  <span className="font-bold text-[#607368]">Selected service</span>
+                  <span className="font-black text-[#13241b] text-right">{formData.selectedServices[0]?.service_name || '—'}</span>
                 </div>
                 <div className="flex justify-between border-b border-[#e5ece8] pb-3">
                   <span className="font-bold text-[#607368]">Date & Time</span>
