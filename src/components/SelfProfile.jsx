@@ -170,6 +170,7 @@ export default function SelfProfile({ user, role, onSaved, onCancel, beforeSave 
         country: address.countryName,
         countryCode: address.countryCode,
         regionCode: address.countryCode === 'PH' ? address.regionCode : '',
+        cityCode: address.countryCode === 'PH' ? address.cityCode : '',
       });
       const fallback = postalCode || getStaticPostalCode({
         countryCode: address.countryCode,
@@ -192,6 +193,7 @@ export default function SelfProfile({ user, role, onSaved, onCancel, beforeSave 
     }
   }, [
     address.cityName,
+    address.cityCode,
     address.countryCode,
     address.countryName,
     address.provinceName,
@@ -401,7 +403,7 @@ export default function SelfProfile({ user, role, onSaved, onCancel, beforeSave 
                 <label className={labelClass}>Mobile number *
                   <div className="flex items-center gap-2">
                     <span className="rounded-xl border border-[#d4e2dc] bg-[#f5f7f6] px-3 py-2.5 text-xs font-bold text-[#607368]">{getPhoneCallingCode(address.countryCode)}</span>
-                    <input required type="tel" inputMode="numeric" maxLength={15} autoComplete="tel-national" placeholder="Enter your national number" className={inputClass} value={form.mobile_number} onChange={(event) => setForm({ ...form, mobile_number: event.target.value.replace(/\D/g, '') })} />
+                    <input required type="tel" inputMode="numeric" maxLength={address.countryCode === 'PH' ? 10 : 15} pattern={address.countryCode === 'PH' ? '9[0-9]{9}' : undefined} autoComplete="tel-national" placeholder={address.countryCode === 'PH' ? '9XXXXXXXXX' : 'Enter your national number'} className={inputClass} value={form.mobile_number} onChange={(event) => setForm({ ...form, mobile_number: event.target.value.replace(/\D/g, '') })} />
                   </div>
                 </label>
                 <label className={labelClass}>Email
@@ -438,7 +440,7 @@ export default function SelfProfile({ user, role, onSaved, onCancel, beforeSave 
                     <label className={labelClass}>Guardian contact number *
                       <div className="flex items-center gap-2">
                         <span className="rounded-xl border border-[#d4e2dc] bg-[#f5f7f6] px-3 py-2.5 text-xs font-bold text-[#607368]">{getPhoneCallingCode(address.countryCode)}</span>
-                        <input required type="tel" inputMode="numeric" maxLength={15} autoComplete="tel-national" placeholder="Enter national number" className={inputClass} value={form.guardian_contact} onChange={(event) => setForm({ ...form, guardian_contact: event.target.value.replace(/\D/g, '') })} />
+                        <input required type="tel" inputMode="numeric" maxLength={address.countryCode === 'PH' ? 10 : 15} pattern={address.countryCode === 'PH' ? '9[0-9]{9}' : undefined} autoComplete="tel-national" placeholder={address.countryCode === 'PH' ? '9XXXXXXXXX' : 'Enter national number'} className={inputClass} value={form.guardian_contact} onChange={(event) => setForm({ ...form, guardian_contact: event.target.value.replace(/\D/g, '') })} />
                       </div>
                     </label>
                   </div>

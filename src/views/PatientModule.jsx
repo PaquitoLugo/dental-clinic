@@ -138,48 +138,32 @@ export default function PatientModule({ services, dentists, createAppointment, a
   const patientAppointments = appointments.filter(
     appointment => normalizedPatientName && belongsToPatient(appointment, { id: user?.id, full_name: user?.name })
   );
-  const canCancelAcceptedAppointment = (appointment) => {
+  const canCancelPatientAppointment = (appointment) => {
     if (
-      appointment.status !== 'Accepted' ||
+      !['Pending', 'Accepted'].includes(appointment.status) ||
       !user?.id ||
       !appointment.patient_id ||
       String(appointment.patient_id) !== String(user?.id) ||
-      !appointment.appointment_date ||
-      !appointment.appointment_time
+      !appointment.appointment_date
     ) return false;
-    const appointmentStart = new Date(`${appointment.appointment_date}T${appointment.appointment_time}`);
-    return Number.isFinite(appointmentStart.getTime()) && appointmentStart > new Date();
+    return appointment.appointment_date > localDateKey();
   };
-  const cancelAcceptedAppointment = async (appointment) => {
-    if (!canCancelAcceptedAppointment(appointment) || cancellingAppointmentId) return;
+  const cancelPatientAppointment = async (appointment) => {
+    if (!canCancelPatientAppointment(appointment) || cancellingAppointmentId) return;
     const confirmed = await dialog.confirm(
-      'Cancel this accepted appointment to choose a different schedule? You can then submit a new request using dates and times the dentist has marked available.',
-      { title: 'Cancel accepted appointment', confirmText: 'Cancel appointment', variant: 'danger' }
+      'Cancel this appointment before its scheduled date? You can then submit a new request using dates and times the dentist has marked available.',
+      { title: 'Cancel appointment', confirmText: 'Cancel appointment', variant: 'danger' }
     );
     if (!confirmed) return;
 
     setCancellingAppointmentId(appointment.id);
     try {
-      const today = localDateKey();
-      const now = new Date();
-      const currentTime = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}:${String(now.getSeconds()).padStart(2, '0')}`;
-      let query = supabase.from('appointments').update({
-        status: 'Cancelled',
-        cancellation_reason: 'Patient requested rescheduling',
-        cancelled_at: now.toISOString(),
-      })
-        .eq('id', appointment.id)
-        .eq('patient_id', user.id)
-        .eq('status', 'Accepted');
-
-      query = appointment.appointment_date === today
-        ? query.eq('appointment_date', today).gt('appointment_time', currentTime)
-        : query.gt('appointment_date', today);
-
-      const { data, error } = await query.select('id').maybeSingle();
+      const { data, error } = await supabase.rpc('cancel_patient_appointment', {
+        p_appointment_id: appointment.id,
+      });
       if (error) throw error;
       if (!data) {
-        await dialog.alert('This appointment can no longer be cancelled. It may have started or its status may have changed.', {
+        await dialog.alert('This appointment can no longer be cancelled. Cancellation is only available before its scheduled date, and its status must still be pending or accepted.', {
           title: 'Appointment not cancelled',
           variant: 'warning',
         });
@@ -187,7 +171,7 @@ export default function PatientModule({ services, dentists, createAppointment, a
       }
 
       await refreshData();
-      await dialog.alert('Your accepted appointment has been cancelled. You can now submit a new request for a date and time the dentist has marked available.', {
+      await dialog.alert('Your appointment has been cancelled. You can now submit a new request for a date and time the dentist has marked available.', {
         title: 'Appointment cancelled',
         variant: 'success',
       });
@@ -307,18 +291,20 @@ export default function PatientModule({ services, dentists, createAppointment, a
                     </td>
                     <td className="py-3 px-3 text-right"><span className="bg-[#e3ede6] text-[#164e43] px-2.5 py-0.5 rounded font-bold">{a.status}</span></td>
                     <td className="py-3 px-3 text-right">
-                      {canCancelAcceptedAppointment(a) ? (
+                      {canCancelPatientAppointment(a) ? (
                         <button
                           type="button"
                           disabled={cancellingAppointmentId === a.id}
-                          onClick={() => cancelAcceptedAppointment(a)}
+                          onClick={() => cancelPatientAppointment(a)}
                           className="rounded-lg border border-red-200 px-3 py-1.5 text-[11px] font-bold text-red-700 hover:bg-red-50 disabled:opacity-50"
                         >
                           {cancellingAppointmentId === a.id ? 'Cancelling…' : 'Cancel & reschedule'}
                         </button>
                       ) : (
                         <span className="text-[11px] text-gray-400">
-                          {a.status === 'Accepted' && String(a.patient_id) === String(user?.id) ? 'Schedule passed' : '—'}
+                          {['Pending', 'Accepted'].includes(a.status) && String(a.patient_id) === String(user?.id)
+                            ? a.appointment_date <= localDateKey() ? 'Cancel before appointment date' : '—'
+                            : '—'}
                         </span>
                       )}
                     </td>
