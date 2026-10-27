@@ -42,7 +42,7 @@ export default function Login({ onLogin }) {
           ARCHIVED: 'This account is archived. Please contact the clinic manager for assistance.',
           PENDING: 'Your account is still waiting for verification by the clinic manager. Please try again later.',
           REJECTED: 'Your registration was not approved. Please contact the clinic for assistance.',
-          RATE_LIMITED: 'Too many sign-in attempts. Please wait 15 minutes before trying again.',
+          RATE_LIMITED: 'This specific account is temporarily locked due to too many failed sign-in attempts. Please wait 15 minutes before trying again or use a different account.',
         };
         setErrorMsg(messages[data.code] || 'Authentication service is unavailable. Please try again later.');
         return;
@@ -214,18 +214,18 @@ export default function Login({ onLogin }) {
           >
             {isLoading ? 'Signing in...' : 'Sign In to Workspace →'}
           </button>
-                        <button
-                type="button"
-                onClick={() => {
-                  setForgotError('');
-                  setForgotSuccess('');
-                  setIsForgotOpen(true);
-                }}
-                className="text-xs font-bold text-[#164e43] hover:underline cursor-pointer"
-              >
-                Forgot password?
-              </button>
-
+          
+          <button
+            type="button"
+            onClick={() => {
+              setForgotError('');
+              setForgotSuccess('');
+              setIsForgotOpen(true);
+            }}
+            className="text-xs font-bold text-[#164e43] hover:underline cursor-pointer"
+          >
+            Forgot password?
+          </button>
         </form>
 
         {/* Separated Register Button */}
@@ -239,7 +239,6 @@ export default function Login({ onLogin }) {
             Register as a Patient
           </button>
         </div>
-
       </div>
 
       {/* Forgot Password Modal */}
