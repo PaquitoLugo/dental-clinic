@@ -8,6 +8,7 @@ import { isAccountActive } from '../data/useSessionGuard';
 import { recordActivity } from '../lib/activityLog';
 import useAttendance from '../lib/useAttendance';
 import { formatClockTime, localDateKey } from '../lib/dateUtils';
+import SelfProfile from '../components/SelfProfile';
 
 // Appointment lifecycle handled by the dental assistant:
 //   Pending -> Accepted (or Rejected) -> In Queue -> In Treatment -> Completed
@@ -41,7 +42,7 @@ const formatTime = (t) => {
   return `${h % 12 || 12}:${m[2]} ${h >= 12 ? 'PM' : 'AM'}`;
 };
 
-export default function AssistantModule({ appointments = [], updateAppointmentStatus, refreshData, dentists = [], currentView = 'queue', onViewChange, user }) {
+export default function AssistantModule({ appointments = [], updateAppointmentStatus, refreshData, dentists = [], currentView = 'queue', onViewChange, user, onProfileUpdated }) {
   const [filter, setFilter] = useState('Active');
   const [doctorFilter, setDoctorFilter] = useState('All');
   const [busyId, setBusyId] = useState(null);
@@ -485,7 +486,11 @@ export default function AssistantModule({ appointments = [], updateAppointmentSt
   ).length;
 
   return (
-    <div className="h-full w-full bg-white border border-[#d4e2dc] rounded-2xl p-6 shadow-2xs flex flex-col overflow-hidden">
+    <div className="h-full w-full">
+      {currentView === 'profile' ? (
+        <SelfProfile user={user} role="assistant" onSaved={onProfileUpdated} />
+      ) : (
+      <div className="h-full w-full bg-white border border-[#d4e2dc] rounded-2xl p-6 shadow-2xs flex flex-col overflow-hidden">
       {!isArchiveView && <section className="mb-4 space-y-3">
         <div>
           <h2 className="font-black text-xl text-[#13241b]">Assistant Dashboard</h2>
@@ -684,6 +689,8 @@ export default function AssistantModule({ appointments = [], updateAppointmentSt
           record={records[String(viewing.id)]}
           onClose={() => setViewing(null)}
         />
+      )}
+      </div>
       )}
     </div>
   );

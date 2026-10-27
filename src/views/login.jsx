@@ -186,17 +186,6 @@ export default function Login({ onLogin }) {
           <div>
             <div className="flex justify-between items-center mb-2">
               <label className="block text-xs font-bold text-[#607368] uppercase tracking-wider">Password</label>
-              <button
-                type="button"
-                onClick={() => {
-                  setForgotError('');
-                  setForgotSuccess('');
-                  setIsForgotOpen(true);
-                }}
-                className="text-xs font-bold text-[#164e43] hover:underline cursor-pointer"
-              >
-                Forgot password?
-              </button>
             </div>
             <div className="relative">
               <input
@@ -234,6 +223,18 @@ export default function Login({ onLogin }) {
           >
             {isLoading ? 'Signing in...' : 'Sign In to Workspace →'}
           </button>
+                        <button
+                type="button"
+                onClick={() => {
+                  setForgotError('');
+                  setForgotSuccess('');
+                  setIsForgotOpen(true);
+                }}
+                className="text-xs font-bold text-[#164e43] hover:underline cursor-pointer"
+              >
+                Forgot password?
+              </button>
+
         </form>
 
         {/* Separated Register Button */}

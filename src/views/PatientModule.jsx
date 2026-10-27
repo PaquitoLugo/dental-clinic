@@ -5,8 +5,9 @@ import ToothChart from '../components/ToothChart';
 import TreatmentRecordModal from '../components/TreatmentRecordModal';
 import useTreatmentRecords from '../lib/useTreatmentRecords';
 import { belongsToPatient } from '../data/patientMatch';
+import SelfProfile from '../components/SelfProfile';
 
-export default function PatientModule({ services, dentists, createAppointment, appointments, user, currentView, onViewChange }) {
+export default function PatientModule({ services, dentists, createAppointment, appointments, user, currentView, onViewChange, onProfileUpdated }) {
   const [patientName, setPatientName] = useState('');
   const [contactNumber, setContactNumber] = useState('');
   const [email, setEmail] = useState('');
@@ -258,6 +259,17 @@ export default function PatientModule({ services, dentists, createAppointment, a
           appointment={viewingRecord}
           record={myRecords[String(viewingRecord.id)]}
           onClose={() => setViewingRecord(null)}
+        />
+      )}
+
+      {currentView === 'profile' && (
+        <SelfProfile
+          user={user}
+          role="patient"
+          onSaved={(updatedProfile) => {
+            setProfile(updatedProfile);
+            onProfileUpdated?.(updatedProfile);
+          }}
         />
       )}
 

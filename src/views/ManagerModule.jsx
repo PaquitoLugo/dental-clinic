@@ -63,8 +63,6 @@ export default function ManagerModule({ services, addService, updateService, del
   const [staffDirectoryTab, setStaffDirectoryTab] = useState('active');
   const [userMsg, setUserMsg] = useState('');
   const [patientFilter, setPatientFilter] = useState('active');
-  const [editingPatient, setEditingPatient] = useState(null);
-  const [patientForm, setPatientForm] = useState({});
   const [appointmentPatient, setAppointmentPatient] = useState(null);
   const [appointmentDentistDrafts, setAppointmentDentistDrafts] = useState({});
   const [savingAppointmentId, setSavingAppointmentId] = useState(null);
@@ -297,49 +295,6 @@ export default function ManagerModule({ services, addService, updateService, del
     patientFilter === 'archived' ? Boolean(account.archived_at) : !account.archived_at,
   );
   const statusOf = (account) => account.account_status || 'Approved';
-
-  const startEditingPatient = (account) => {
-    setEditingPatient(account);
-    setPatientForm({
-      full_name: account.full_name || '',
-      username: account.username || '',
-      email: account.email || '',
-      mobile_number: account.mobile_number || '',
-      birthdate: account.birthdate || '',
-      sex: account.sex || '',
-      complete_address: account.complete_address || '',
-    });
-  };
-
-  const handleSavePatient = async (event) => {
-    event.preventDefault();
-    if (!editingPatient) return;
-
-    const update = {
-      full_name: patientForm.full_name.trim(),
-      username: patientForm.username.trim().toLowerCase(),
-      email: patientForm.email.trim() || null,
-      mobile_number: patientForm.mobile_number.trim() || null,
-      birthdate: patientForm.birthdate || null,
-      sex: patientForm.sex.trim() || null,
-      complete_address: patientForm.complete_address.trim() || null,
-    };
-
-    const { error } = await supabase.from('staff_users').update(update).eq('id', editingPatient.id);
-    if (error) {
-      setUserMsg(`Could not update patient account: ${error.message}`);
-      return;
-    }
-
-    await recordActivity(user, {
-      action: `Updated patient account: ${update.full_name}`,
-      entityType: 'staff_user',
-      entityId: editingPatient.id,
-    });
-    setEditingPatient(null);
-    setUserMsg(`${update.full_name}'s account was updated.`);
-    await fetchStaffUsers();
-  };
 
   const setPatientArchived = async (account, archived) => {
     const { error } = await supabase.from('staff_users')
@@ -899,7 +854,6 @@ export default function ManagerModule({ services, addService, updateService, del
                           </span>
                         </td>
                         <td className="space-x-1.5 whitespace-nowrap px-2 py-3 text-right">
-                          {patientFilter === 'active' && <button type="button" onClick={() => startEditingPatient(account)} className="rounded-lg border border-[#d4e2dc] px-3 py-1.5 font-bold text-[#164e43]">Edit</button>}
                           {patientFilter === 'active' && statusOf(account) !== 'Approved' && <button type="button" onClick={() => handlePatientDecision(account, 'Approved')} className="rounded-lg bg-emerald-600 px-3 py-1.5 font-bold text-white">Accept</button>}
                           {patientFilter === 'active' && statusOf(account) === 'Pending' && <button type="button" onClick={() => handlePatientDecision(account, 'Rejected')} className="rounded-lg border border-red-200 px-3 py-1.5 font-bold text-red-700">Reject</button>}
                           {patientFilter === 'active' && <button type="button" onClick={() => setPatientArchived(account, true)} className="rounded-lg border border-amber-200 px-3 py-1.5 font-bold text-amber-700">Archive</button>}
@@ -1023,47 +977,6 @@ export default function ManagerModule({ services, addService, updateService, del
               <div><label className="mb-1 block font-bold text-[#13241b]">Email Address *</label><input type="email" required value={newDentistEmail} onChange={e => setNewDentistEmail(e.target.value)} className="w-full rounded-xl border border-[#d4e2dc] bg-[#f5f7f6] p-2.5" /></div>
               <div><label className="mb-1 block font-bold text-[#13241b]">Role *</label><select required value={newStaffRole} onChange={e => setNewStaffRole(e.target.value)} className="w-full rounded-xl border border-[#d4e2dc] bg-[#f5f7f6] p-2.5"><option value="dentist">Dentist</option><option value="assistant">Assistant</option></select></div>
               <button type="submit" className="w-full rounded-xl bg-[#164e43] py-3 font-bold text-white hover:bg-[#0f362e] cursor-pointer">Save Changes</button>
-            </form>
-          </div>
-        </div>
-      )}
-
-      {currentView === 'users' && editingPatient && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={() => setEditingPatient(null)}>
-          <div role="dialog" aria-modal="true" aria-labelledby="edit-patient-title" className="max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-2xl bg-white p-6 shadow-xl" onClick={(event) => event.stopPropagation()}>
-            <div className="mb-5 flex items-center justify-between">
-              <div>
-                <h3 id="edit-patient-title" className="font-black text-lg text-[#13241b]">Edit Patient Account</h3>
-                <p className="text-xs text-[#607368]">Update patient account details. Appointment dentists are managed separately.</p>
-              </div>
-              <button type="button" aria-label="Close" onClick={() => setEditingPatient(null)} className="text-xl text-[#607368] cursor-pointer">×</button>
-            </div>
-            <form onSubmit={handleSavePatient} className="grid grid-cols-1 gap-4 text-xs sm:grid-cols-2">
-              <label className="font-bold text-[#13241b]">Full name *
-                <input required value={patientForm.full_name || ''} onChange={(event) => setPatientForm({ ...patientForm, full_name: event.target.value })} className="mt-1 w-full rounded-xl border border-[#d4e2dc] bg-[#f5f7f6] p-2.5 font-normal" />
-              </label>
-              <label className="font-bold text-[#13241b]">Username *
-                <input required value={patientForm.username || ''} onChange={(event) => setPatientForm({ ...patientForm, username: event.target.value })} className="mt-1 w-full rounded-xl border border-[#d4e2dc] bg-[#f5f7f6] p-2.5 font-normal" />
-              </label>
-              <label className="font-bold text-[#13241b]">Email
-                <input type="email" value={patientForm.email || ''} onChange={(event) => setPatientForm({ ...patientForm, email: event.target.value })} className="mt-1 w-full rounded-xl border border-[#d4e2dc] bg-[#f5f7f6] p-2.5 font-normal" />
-              </label>
-              <label className="font-bold text-[#13241b]">Mobile number
-                <input value={patientForm.mobile_number || ''} onChange={(event) => setPatientForm({ ...patientForm, mobile_number: event.target.value })} className="mt-1 w-full rounded-xl border border-[#d4e2dc] bg-[#f5f7f6] p-2.5 font-normal" />
-              </label>
-              <label className="font-bold text-[#13241b]">Birth date
-                <input type="date" value={patientForm.birthdate || ''} onChange={(event) => setPatientForm({ ...patientForm, birthdate: event.target.value })} className="mt-1 w-full rounded-xl border border-[#d4e2dc] bg-[#f5f7f6] p-2.5 font-normal" />
-              </label>
-              <label className="font-bold text-[#13241b]">Sex
-                <input value={patientForm.sex || ''} onChange={(event) => setPatientForm({ ...patientForm, sex: event.target.value })} className="mt-1 w-full rounded-xl border border-[#d4e2dc] bg-[#f5f7f6] p-2.5 font-normal" />
-              </label>
-              <label className="font-bold text-[#13241b] sm:col-span-2">Address
-                <textarea value={patientForm.complete_address || ''} onChange={(event) => setPatientForm({ ...patientForm, complete_address: event.target.value })} rows="2" className="mt-1 w-full rounded-xl border border-[#d4e2dc] bg-[#f5f7f6] p-2.5 font-normal" />
-              </label>
-              <div className="flex gap-3 pt-2 sm:col-span-2">
-                <button type="submit" className="flex-1 rounded-xl bg-[#164e43] py-3 font-bold text-white hover:bg-[#0f362e] cursor-pointer">Save Patient</button>
-                <button type="button" onClick={() => setEditingPatient(null)} className="rounded-xl border border-[#d4e2dc] px-5 py-3 font-bold text-[#40584f] cursor-pointer">Cancel</button>
-              </div>
             </form>
           </div>
         </div>

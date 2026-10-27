@@ -10,7 +10,7 @@ import DialogHost, { dialog } from './components/DialogHost';
 import useSessionGuard from './data/useSessionGuard';
 import ResetPassword from './components/ResetPassword'; // Added ResetPassword import
 
-function MainWorkspace({ authenticatedUser, handleLogout }) {
+function MainWorkspace({ authenticatedUser, handleLogout, onProfileUpdated }) {
   const contextData = useContext(ClinicContext);
   
   const [currentView, setCurrentView] = useState(() => {
@@ -151,6 +151,14 @@ function MainWorkspace({ authenticatedUser, handleLogout }) {
                 >
                   🗄️ Appointment Archive
                 </button>
+                <button
+                  onClick={() => setCurrentView('profile')}
+                  className={`w-full text-left px-4 py-3 rounded-xl font-bold text-xs transition cursor-pointer ${
+                    currentView === 'profile' ? 'bg-[#164e43] text-white' : 'text-[#607368] hover:bg-[#f5f7f6]'
+                  }`}
+                >
+                  👤 Profile
+                </button>
               </>
             )}
 
@@ -188,6 +196,14 @@ function MainWorkspace({ authenticatedUser, handleLogout }) {
                 >
                   <span>Services</span>
                 </button>
+                <button
+                  onClick={() => setCurrentView('profile')}
+                  className={`w-full flex items-center px-4 py-3 rounded-xl font-bold text-xs transition cursor-pointer ${
+                    currentView === 'profile' ? 'bg-[#164e43] text-white' : 'text-[#607368] hover:bg-[#f5f7f6]'
+                  }`}
+                >
+                  <span>My Profile</span>
+                </button>
               </>
             )}
           </nav>
@@ -218,13 +234,14 @@ function MainWorkspace({ authenticatedUser, handleLogout }) {
             user={authenticatedUser} 
           />
         )}
-        {isAssistant && <AssistantModule {...contextData} currentView={currentView} onViewChange={setCurrentView} user={authenticatedUser} />}
+        {isAssistant && <AssistantModule {...contextData} currentView={currentView} onViewChange={setCurrentView} user={authenticatedUser} onProfileUpdated={onProfileUpdated} />}
         {isPatient && (
           <PatientModule 
             {...contextData} 
             currentView={currentView} 
             onViewChange={setCurrentView} 
             user={authenticatedUser} 
+            onProfileUpdated={onProfileUpdated}
           />
         )}
       </main>
@@ -278,6 +295,16 @@ export default function App() {
       { title: 'Signed out', variant: 'warning' }
     );
   };
+
+  const handleProfileUpdated = (profile) => {
+    setAuthenticatedUser((currentUser) => {
+      if (!currentUser) return currentUser;
+      const updatedUser = { ...currentUser, name: profile.full_name || currentUser.name };
+      localStorage.setItem('dental_portal_user', JSON.stringify(updatedUser));
+      return updatedUser;
+    });
+  };
+
   useSessionGuard(authenticatedUser, handleForcedLogout);
 
   // Render ResetPassword view if a resetToken exists in URL
@@ -297,7 +324,7 @@ export default function App() {
     <ClinicProvider>
       <div className="min-h-screen w-full bg-[#f4f7f6] overflow-y-auto">
         {authenticatedUser ? (
-          <MainWorkspace authenticatedUser={authenticatedUser} handleLogout={handleLogout} />
+          <MainWorkspace authenticatedUser={authenticatedUser} handleLogout={handleLogout} onProfileUpdated={handleProfileUpdated} />
         ) : (
           <>
             {portalView === 'portal' && (

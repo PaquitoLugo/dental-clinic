@@ -1,4 +1,5 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
+import { getData as getCountryData } from 'country-list';
 import { supabase } from '../lib/supabase';
 import PhAddressSelect from './PhAddressSelect';
 import { EMPTY_ADDRESS, buildCompleteAddress } from '../lib/phAddress';
@@ -12,13 +13,52 @@ const labelClass = 'block font-bold text-[#607368] mb-1 text-xs';
 
 const ALLOWED_EMAIL_DOMAINS = ['gmail.com', 'yahoo.com', 'outlook.com', 'hotmail.com', 'icloud.com', 'yahoo.com.ph'];
 
+const COUNTRY_NAMES = new Intl.DisplayNames(['en'], { type: 'region' });
+const COUNTRIES = getCountryData()
+  .map(({ code, name }) => ({ code, name: COUNTRY_NAMES.of(code) || name }))
+  .sort((a, b) => a.name.localeCompare(b.name));
+const COUNTRIES_WITH_SUBDIVISIONS = new Set(['US', 'CA', 'AU', 'IN', 'BR', 'MX', 'JP', 'KR', 'CN', 'NZ', 'GB']);
+
 const INITIAL = {
   firstName: '', middleName: '', lastName: '', birthdate: '', sex: '',
   mobileNumber: '', email: '', username: '', password: '', confirmPassword: '',
   isGuardian: false, guardianName: '', guardianRelationship: '', guardianContact: '',
 };
 
-const PLACE_REGEX = /^[\p{L}\p{M}0-9\s.,'’\-()\/&]+$/u;
+const INITIAL_ADDRESS = {
+  ...EMPTY_ADDRESS,
+  countryCode: 'PH',
+  countryName: 'Philippines',
+  postalCode: '',
+  subdivisionName: '',
+};
+
+const subdivisionLabelForCountry = (countryCode) => ({
+  US: 'State',
+  CA: 'Province',
+  AU: 'State / Territory',
+  IN: 'State / Union Territory',
+  BR: 'State',
+  MX: 'State',
+  JP: 'Prefecture',
+  KR: 'Province / Metropolitan City',
+  CN: 'Province',
+  NZ: 'Region',
+  GB: 'County',
+}[countryCode] || 'State / Province / Region');
+
+const postalLabelForCountry = (countryCode) => ({
+  US: 'ZIP code',
+  GB: 'Postcode',
+  IE: 'Eircode',
+}[countryCode] || (countryCode === 'CA' || countryCode === 'AU' || countryCode === 'NZ' ? 'Postcode' : 'Postal code'));
+
+const PLACE_REGEX = /^[\p{L}\p{M}0-9\s.,'’()&\x2f-]+$/u;
+const PasswordVisibilityButton = ({ visible, onClick, label }) => (
+  <button type="button" onClick={onClick} aria-label={label} aria-pressed={visible} className="absolute inset-y-0 right-2 flex items-center px-1 text-[#20282b] cursor-pointer">
+    <img aria-hidden="true" src={visible ? hidePasswordIcon : showPasswordIcon} alt="" className="h-6 w-6 object-contain" />
+  </button>
+);
 const normalizeNamePart = (value = '') => value.toLocaleLowerCase().normalize('NFD')
   .replace(/[\u0300-\u036f]/g, '')
   .replace(/[^\p{L}\p{N}]/gu, '');
@@ -26,13 +66,58 @@ const patientIdentityKey = (firstName, lastName) => `${normalizeNamePart(firstNa
 
 export default function RegisterModal({ isOpen, onClose, onSuccess }) {
   const [form, setForm] = useState(INITIAL);
-  const [address, setAddress] = useState(EMPTY_ADDRESS);
+  const [address, setAddress] = useState(INITIAL_ADDRESS);
+  const [subdivisionOptions, setSubdivisionOptions] = useState([]);
+  const [subdivisionStatus, setSubdivisionStatus] = useState({ loading: false, error: '' });
   const [errors, setErrors] = useState({});
   const [touched, setTouched] = useState({});
   const [globalError, setGlobalError] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
+
+  useEffect(() => {
+    if (!address.countryCode || address.countryCode === 'PH') return undefined;
+
+    const controller = new AbortController();
+    let active = true;
+    const timeoutId = window.setTimeout(() => controller.abort(), 8000);
+
+    fetch('https://countriesnow.space/api/v0.1/countries/states', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ country: address.countryName }),
+      signal: controller.signal,
+    })
+      .then(async (response) => {
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        const result = await response.json();
+        if (result.error) throw new Error(result.msg || 'Country subdivision lookup failed.');
+        const states = Array.isArray(result.data?.states) ? result.data.states : [];
+        return states
+          .filter((state) => state?.name)
+          .map((state) => state.name)
+          .sort((a, b) => a.localeCompare(b));
+      })
+      .then((states) => {
+        if (!active) return;
+        setSubdivisionOptions(states);
+        setSubdivisionStatus({ loading: false, error: '' });
+      })
+      .catch((error) => {
+        if (!active) return;
+        console.error('Could not load country subdivisions:', error);
+        setSubdivisionStatus({ loading: false, error: 'Could not load region options. Please enter the region manually.' });
+      })
+      .finally(() => {
+        window.clearTimeout(timeoutId);
+      });
+
+    return () => {
+      active = false;
+      controller.abort();
+    };
+  }, [address.countryCode, address.countryName]);
 
   if (!isOpen) return null;
 
@@ -42,14 +127,14 @@ export default function RegisterModal({ isOpen, onClose, onSuccess }) {
         const v = value.trim();
         if (!v) return 'First name is required.';
         if (v.length < 2 || v.length > 50) return 'First name must be 2 to 50 characters.';
-        if (!/^[A-Za-z\s'\-]+$/.test(v)) return 'First name can only have letters, spaces, hyphens, and apostrophes.';
+        if (!/^[A-Za-z\s'-]+$/.test(v)) return 'First name can only have letters, spaces, hyphens, and apostrophes.';
         return '';
       }
       case 'lastName': {
         const v = value.trim();
         if (!v) return 'Last name is required.';
         if (v.length < 2 || v.length > 50) return 'Last name must be 2 to 50 characters.';
-        if (!/^[A-Za-z\s'\-]+$/.test(v)) return 'Last name can only have letters, spaces, hyphens, and apostrophes.';
+        if (!/^[A-Za-z\s'-]+$/.test(v)) return 'Last name can only have letters, spaces, hyphens, and apostrophes.';
         return '';
       }
       case 'middleName': {
@@ -173,7 +258,9 @@ export default function RegisterModal({ isOpen, onClose, onSuccess }) {
 
   const handleClose = () => {
     setForm(INITIAL);
-    setAddress(EMPTY_ADDRESS);
+    setAddress(INITIAL_ADDRESS);
+    setSubdivisionOptions([]);
+    setSubdivisionStatus({ loading: false, error: '' });
     setErrors({});
     setTouched({});
     setGlobalError('');
@@ -182,15 +269,21 @@ export default function RegisterModal({ isOpen, onClose, onSuccess }) {
     onClose();
   };
 
-  const PasswordVisibilityButton = ({ visible, onClick, label }) => (
-    <button type="button" onClick={onClick} aria-label={label} aria-pressed={visible} className="absolute inset-y-0 right-2 flex items-center px-1 text-[#20282b] cursor-pointer">
-      <img aria-hidden="true" src={visible ? hidePasswordIcon : showPasswordIcon} alt="" className="h-6 w-6 object-contain" />
-    </button>
-  );
-
   const handleSubmit = async (e) => {
     e.preventDefault();
     setGlobalError('');
+
+    const isPhilippines = address.countryCode === 'PH';
+    const requiresSubdivision = !isPhilippines && (
+      subdivisionOptions.length > 0
+      || subdivisionStatus.error
+      || COUNTRIES_WITH_SUBDIVISIONS.has(address.countryCode)
+    );
+    const missingAddress = !address.countryCode || !address.street.trim() || (
+      isPhilippines
+        ? !address.regionCode || !address.cityCode || !(address.barangayName || address.barangayCode)
+        : !address.cityName.trim() || (requiresSubdivision && !address.subdivisionName.trim())
+    );
 
     const newErrors = {};
     for (const field of Object.keys(form)) {
@@ -198,8 +291,10 @@ export default function RegisterModal({ isOpen, onClose, onSuccess }) {
       if (err) newErrors[field] = err;
     }
 
-    if (!address.regionCode || !address.cityCode || !(address.barangayName || address.barangayCode)) {
-      setGlobalError('Please complete your address (region, city/municipality and barangay).');
+    if (missingAddress) {
+      setGlobalError(isPhilippines
+        ? 'Please complete your address (street, region, city/municipality and barangay).'
+        : 'Please complete your address (street, city, and the required state, province, or region).');
     }
 
     setErrors(newErrors);
@@ -210,7 +305,7 @@ export default function RegisterModal({ isOpen, onClose, onSuccess }) {
       guardianRelationship: true, guardianContact: true,
     });
 
-    if (Object.keys(newErrors).length > 0 || (!address.regionCode || !address.cityCode || !(address.barangayName || address.barangayCode))) {
+    if (Object.keys(newErrors).length > 0 || missingAddress || subdivisionStatus.loading) {
       return;
     }
 
@@ -240,6 +335,30 @@ export default function RegisterModal({ isOpen, onClose, onSuccess }) {
         return;
       }
 
+      const countryAddress = isPhilippines
+        ? {
+          ...address,
+          street: address.street.trim(),
+          postalCode: address.postalCode.trim(),
+        }
+        : {
+          ...EMPTY_ADDRESS,
+          street: address.street.trim(),
+          regionName: address.subdivisionName.trim(),
+          cityName: address.cityName.trim(),
+          postalCode: address.postalCode.trim(),
+          countryName: address.countryName,
+        };
+      const completeAddress = isPhilippines
+        ? [buildCompleteAddress(countryAddress), address.postalCode.trim(), address.countryName].filter(Boolean).join(', ')
+        : [
+          countryAddress.street,
+          countryAddress.subdivisionName || address.subdivisionName.trim(),
+          countryAddress.cityName,
+          countryAddress.postalCode,
+          address.countryName,
+        ].filter(Boolean).join(', ');
+
       const { error: insertError } = await supabase.from('staff_users').insert([{
         full_name: fullName,
         first_name: firstName,
@@ -257,16 +376,19 @@ export default function RegisterModal({ isOpen, onClose, onSuccess }) {
         guardian_name: form.isGuardian ? form.guardianName.trim() : null,
         guardian_relationship: form.isGuardian ? form.guardianRelationship.trim() : null,
         guardian_contact: form.isGuardian ? form.guardianContact.trim() : null,
-        street: address.street.trim(),
-        region_code: address.regionCode,
-        region_name: address.regionName,
-        province_code: address.provinceCode === '__independent__' ? null : (address.provinceCode || null),
-        province_name: address.provinceName || null,
-        city_code: address.cityCode,
-        city_name: address.cityName,
-        barangay_code: address.barangayCode || null,
-        barangay_name: address.barangayName,
-        complete_address: buildCompleteAddress({ ...address, street: address.street.trim() }),
+        country_code: address.countryCode,
+        country_name: address.countryName,
+        postal_code: address.postalCode.trim() || null,
+        street: countryAddress.street,
+        region_code: isPhilippines ? address.regionCode : null,
+        region_name: isPhilippines ? address.regionName : address.subdivisionName.trim() || null,
+        province_code: isPhilippines && address.provinceCode !== '__independent__' ? (address.provinceCode || null) : null,
+        province_name: isPhilippines ? (address.provinceName || null) : null,
+        city_code: isPhilippines ? address.cityCode : null,
+        city_name: isPhilippines ? address.cityName : address.cityName.trim(),
+        barangay_code: isPhilippines ? (address.barangayCode || null) : null,
+        barangay_name: isPhilippines ? (address.barangayName || null) : null,
+        complete_address: completeAddress,
       }]);
       if (insertError) throw insertError;
 
@@ -418,7 +540,96 @@ export default function RegisterModal({ isOpen, onClose, onSuccess }) {
 
           <section className="space-y-3">
             <h4 className="text-xs font-black uppercase tracking-wider text-[#164e43]">Address</h4>
-            <PhAddressSelect value={address} onChange={setAddress} />
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div>
+                <label className={labelClass}>Country *</label>
+                <select
+                  required
+                  className={`${baseInputClass} ${normalInputClass}`}
+                  value={address.countryCode}
+                  onChange={(event) => {
+                    const country = COUNTRIES.find((item) => item.code === event.target.value);
+                    setAddress({
+                      ...INITIAL_ADDRESS,
+                      countryCode: country?.code || '',
+                      countryName: country?.code === 'PH' ? 'Philippines' : (country?.name || ''),
+                    });
+                    setSubdivisionOptions([]);
+                    setSubdivisionStatus({ loading: Boolean(country?.code && country.code !== 'PH'), error: '' });
+                    setGlobalError('');
+                  }}
+                >
+                  <option value="">Select country</option>
+                  {COUNTRIES.map((country) => (
+                    <option key={country.code} value={country.code}>{country.name}</option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className={labelClass}>{postalLabelForCountry(address.countryCode)}</label>
+                <input
+                  autoComplete="postal-code"
+                  className={`${baseInputClass} ${normalInputClass}`}
+                  value={address.postalCode}
+                  onChange={(event) => setAddress((previous) => ({ ...previous, postalCode: event.target.value }))}
+                />
+              </div>
+            </div>
+            {address.countryCode === 'PH' ? (
+              <PhAddressSelect value={address} onChange={setAddress} />
+            ) : (
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div className="sm:col-span-2">
+                  <label className={labelClass}>House No. / Street *</label>
+                  <input
+                    required
+                    autoComplete="address-line1"
+                    className={`${baseInputClass} ${normalInputClass}`}
+                    value={address.street}
+                    onChange={(event) => setAddress((previous) => ({ ...previous, street: event.target.value }))}
+                  />
+                </div>
+                {(subdivisionOptions.length > 0 || subdivisionStatus.loading || subdivisionStatus.error || COUNTRIES_WITH_SUBDIVISIONS.has(address.countryCode)) && (
+                  <div>
+                    <label className={labelClass}>{subdivisionLabelForCountry(address.countryCode)}{subdivisionOptions.length > 0 || subdivisionStatus.error || COUNTRIES_WITH_SUBDIVISIONS.has(address.countryCode) ? ' *' : ''}</label>
+                    {subdivisionOptions.length > 0 ? (
+                      <select
+                        required
+                        className={`${baseInputClass} ${normalInputClass}`}
+                        value={address.subdivisionName}
+                        disabled={subdivisionStatus.loading}
+                        onChange={(event) => setAddress((previous) => ({ ...previous, subdivisionName: event.target.value }))}
+                      >
+                        <option value="">{subdivisionStatus.loading ? 'Loading...' : 'Select region'}</option>
+                        {subdivisionOptions.map((subdivision) => (
+                          <option key={subdivision} value={subdivision}>{subdivision}</option>
+                        ))}
+                      </select>
+                    ) : (
+                      <input
+                        required={Boolean(subdivisionStatus.error) || COUNTRIES_WITH_SUBDIVISIONS.has(address.countryCode)}
+                        autoComplete="address-level1"
+                        className={`${baseInputClass} ${normalInputClass}`}
+                        value={address.subdivisionName}
+                        disabled={subdivisionStatus.loading}
+                        onChange={(event) => setAddress((previous) => ({ ...previous, subdivisionName: event.target.value }))}
+                      />
+                    )}
+                    {subdivisionStatus.error && <p className="mt-1 text-[10px] font-semibold text-amber-700">{subdivisionStatus.error}</p>}
+                  </div>
+                )}
+                <div>
+                  <label className={labelClass}>City / Town *</label>
+                  <input
+                    required
+                    autoComplete="address-level2"
+                    className={`${baseInputClass} ${normalInputClass}`}
+                    value={address.cityName}
+                    onChange={(event) => setAddress((previous) => ({ ...previous, cityName: event.target.value }))}
+                  />
+                </div>
+              </div>
+            )}
           </section>
 
           <section className="space-y-3">
@@ -450,8 +661,8 @@ export default function RegisterModal({ isOpen, onClose, onSuccess }) {
 
           <div className="flex gap-3 pt-2 border-t border-[#f0f5f2]">
             <button type="button" onClick={handleClose} className="bg-white border border-[#d4e2dc] text-[#13241b] px-6 py-3 rounded-xl font-bold text-xs cursor-pointer">Cancel</button>
-            <button type="submit" disabled={submitting} className="bg-[#164e43] hover:bg-[#0f362e] text-white px-8 py-3 rounded-xl font-bold text-xs cursor-pointer disabled:opacity-60">
-              {submitting ? 'Submitting...' : 'Submit for verification'}
+            <button type="submit" disabled={submitting || subdivisionStatus.loading} className="bg-[#164e43] hover:bg-[#0f362e] text-white px-8 py-3 rounded-xl font-bold text-xs cursor-pointer disabled:opacity-60">
+              {submitting ? 'Submitting...' : subdivisionStatus.loading ? 'Loading address options...' : 'Submit for verification'}
             </button>
           </div>
         </form>
