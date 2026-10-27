@@ -34,10 +34,10 @@ function MainWorkspace({ authenticatedUser, handleLogout, onProfileUpdated }) {
   const isPatient = authenticatedUser.id === 4 || authenticatedUser.role === 'patient';
 
   return (
-    <div className="h-screen w-screen bg-[#f5f7f6] text-[#13241b] flex overflow-hidden font-sans">
-      <aside className="w-64 bg-white border-r border-[#d4e2dc] flex flex-col justify-between p-6 shrink-0 shadow-2xs z-10">
-        <div>
-          <div className="flex items-center gap-3 mb-8 pb-6 border-b border-[#d4e2dc]">
+    <div className="workspace-shell h-dvh min-h-[100svh] w-full bg-[#f5f7f6] text-[#13241b] flex flex-col lg:flex-row overflow-hidden font-sans">
+      <aside className="workspace-sidebar w-full lg:w-64 lg:h-full bg-white border-b lg:border-b-0 lg:border-r border-[#d4e2dc] flex flex-row lg:flex-col lg:justify-between px-3 py-2 lg:p-6 shrink-0 shadow-2xs z-10 gap-2">
+        <div className="workspace-sidebar-top flex min-w-0 flex-1 items-center gap-3 lg:block">
+          <div className="workspace-brand flex items-center gap-2 lg:gap-3 shrink-0 mb-0 pb-0 border-0 lg:mb-8 lg:pb-6 lg:border-b lg:border-[#d4e2dc]">
             <div className="w-10 h-10 rounded-xl bg-[#164e43] text-white flex items-center justify-center font-bold text-lg shadow-2xs">
               🦷
             </div>
@@ -51,7 +51,7 @@ function MainWorkspace({ authenticatedUser, handleLogout, onProfileUpdated }) {
             </div>
           </div>
 
-          <nav className="flex flex-col gap-2">
+          <nav className="workspace-nav flex min-w-0 flex-1 flex-row gap-1 overflow-x-auto lg:flex-col lg:gap-2 lg:overflow-visible">
             {isManager && (
               <>
                 <button 
@@ -218,7 +218,7 @@ function MainWorkspace({ authenticatedUser, handleLogout, onProfileUpdated }) {
           </nav>
         </div>
 
-        <div className="border-t border-[#d4e2dc] pt-4 space-y-3">
+        <div className="workspace-user-panel border-0 pt-0 space-y-0 lg:border-t lg:border-[#d4e2dc] lg:pt-4 lg:space-y-3">
           <div>
             <span className="text-[10px] text-[#607368] font-bold uppercase tracking-wider block">Logged in as</span>
             <span className="font-black text-xs text-[#13241b] truncate block">{authenticatedUser.name}</span>
@@ -232,7 +232,7 @@ function MainWorkspace({ authenticatedUser, handleLogout, onProfileUpdated }) {
         </div>
       </aside>
 
-      <main className="flex-1 h-full overflow-hidden p-8 flex flex-col">
+      <main className="workspace-main min-w-0 min-h-0 flex-1 h-full overflow-hidden p-3 lg:p-8 flex flex-col">
         {isManager && <ManagerModule {...contextData} currentView={currentView} user={authenticatedUser} />}
         {isDentist && (
           <DentistModule 

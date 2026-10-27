@@ -134,8 +134,8 @@ export default function Login({ onLogin }) {
   };
 
   return (
-    <div className="h-full w-full flex items-center justify-center p-8">
-      <div className="w-[480px] bg-white border border-[#d4e2dc] rounded-3xl p-10 shadow-md">
+    <div className="min-h-full w-full flex items-center justify-center p-4 sm:p-8">
+      <div className="w-full max-w-[480px] bg-white border border-[#d4e2dc] rounded-2xl sm:rounded-3xl p-6 sm:p-10 shadow-md">
         
         {/* Header Branding */}
         <div className="text-center mb-8">
@@ -245,7 +245,7 @@ export default function Login({ onLogin }) {
       {/* Forgot Password Modal */}
       {isForgotOpen && (
         <div className="fixed inset-0 bg-black/40 backdrop-blur-xs flex items-center justify-center p-4 z-50">
-          <div className="bg-white border border-[#d4e2dc] rounded-3xl p-8 w-[420px] shadow-xl relative">
+          <div className="bg-white border border-[#d4e2dc] rounded-2xl sm:rounded-3xl p-5 sm:p-8 w-full max-w-[420px] max-h-[90dvh] overflow-y-auto shadow-xl relative">
             <button
               onClick={() => setIsForgotOpen(false)}
               className="absolute right-6 top-6 text-[#607368] hover:text-[#13241b] text-xl font-bold cursor-pointer"

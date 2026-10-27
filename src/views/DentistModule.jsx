@@ -708,7 +708,7 @@ export default function DentistModule({
       {/* 2. SCHEDULER & INTERACTIVE CALENDAR VIEW */}
       {currentView === 'scheduler' && (
         <div className="space-y-6">
-          <div className="flex justify-between items-center">
+          <div className="flex flex-wrap justify-between items-start gap-3">
             <div>
               <h2 className="font-black text-2xl text-[#13241b]">Practitioner Availability Calendar</h2>
               <p className="text-xs text-[#607368]">Click any date cell to configure hours, or click weekday headers to apply schedule for the whole month.</p>
@@ -907,7 +907,7 @@ export default function DentistModule({
             </span>
           </div>
 
-          <div className="grid grid-cols-4 gap-3 bg-white p-4 rounded-2xl border border-[#d4e2dc]">
+          <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3 bg-white p-4 rounded-2xl border border-[#d4e2dc]">
             <div>
               <label className="block text-[11px] font-bold text-[#607368] mb-1">Search Patient</label>
               <input 

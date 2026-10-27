@@ -100,8 +100,8 @@ export default function ResetPassword({ token, onComplete }) {
   };
 
   return (
-    <div className="min-h-screen w-full flex items-center justify-center p-8 bg-[#f5f7f6]">
-      <div className="w-[420px] bg-white border border-[#d4e2dc] rounded-3xl p-8 shadow-md">
+    <div className="min-h-[100svh] w-full flex items-center justify-center p-4 sm:p-8 bg-[#f5f7f6]">
+      <div className="w-full max-w-[420px] bg-white border border-[#d4e2dc] rounded-2xl sm:rounded-3xl p-5 sm:p-8 shadow-md">
         
         {/* Header */}
         <div className="text-center mb-6">

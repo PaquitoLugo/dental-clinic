@@ -22,6 +22,10 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
+#root {
+  min-height: 100dvh;
+}
+
 .appointment-icon {
   width: 20px;
   height: 20px;
@@ -221,4 +225,65 @@ body {
   .services-header { align-items: stretch; flex-direction: column; }
   .services-search { width: auto; }
   .services-grid { grid-template-columns: 1fr; }
+}
+
+@media (max-width: 1023px) {
+  .workspace-sidebar {
+    min-height: 64px;
+  }
+
+  .workspace-brand > div:last-child p {
+    display: none;
+  }
+
+  .workspace-nav {
+    scrollbar-width: none;
+    overscroll-behavior-x: contain;
+  }
+
+  .workspace-nav::-webkit-scrollbar {
+    display: none;
+  }
+
+  .workspace-nav > button {
+    width: max-content;
+    flex: 0 0 auto;
+    padding: 8px 10px;
+    white-space: nowrap;
+    text-align: left;
+    font-size: 11px;
+  }
+
+  .workspace-user-panel {
+    display: flex;
+    flex: 0 0 auto;
+    align-items: center;
+  }
+
+  .workspace-user-panel > div {
+    display: none;
+  }
+
+  .workspace-user-panel > button {
+    width: auto;
+    padding: 8px 10px;
+    white-space: nowrap;
+  }
+
+  .workspace-main {
+    min-width: 0;
+    padding: 10px;
+  }
+
+  .workspace-main > * {
+    min-width: 0;
+    max-width: 100%;
+  }
+
+  .workspace-main table {
+    display: block;
+    max-width: 100%;
+    overflow-x: auto;
+    white-space: nowrap;
+  }
 }
