@@ -8,6 +8,7 @@ import Login from './views/login';
 import PatientPortal from './views/patientPortal';
 import DialogHost, { dialog } from './components/DialogHost';
 import useSessionGuard from './data/useSessionGuard';
+import ResetPassword from './components/ResetPassword'; // Added ResetPassword import
 
 function MainWorkspace({ authenticatedUser, handleLogout }) {
   const contextData = useContext(ClinicContext);
@@ -88,49 +89,49 @@ function MainWorkspace({ authenticatedUser, handleLogout }) {
             )}
 
             {isDentist && (
-  <>
-    <button 
-      onClick={() => setCurrentView('dashboard')} 
-      className={`w-full text-left px-4 py-3 rounded-xl font-bold text-xs transition cursor-pointer ${
-        currentView === 'dashboard' ? 'bg-[#164e43] text-white' : 'text-[#607368] hover:bg-[#f5f7f6]'
-      }`}
-    >
-      📊 Dashboard & Reports
-    </button>
-    <button 
-      onClick={() => setCurrentView('scheduler')} 
-      className={`w-full text-left px-4 py-3 rounded-xl font-bold text-xs transition cursor-pointer ${
-        currentView === 'scheduler' ? 'bg-[#164e43] text-white' : 'text-[#607368] hover:bg-[#f5f7f6]'
-      }`}
-    >
-      📅 Availability Scheduler
-    </button>
-    <button 
-      onClick={() => setCurrentView('logs')} 
-      className={`w-full text-left px-4 py-3 rounded-xl font-bold text-xs transition cursor-pointer ${
-        currentView === 'logs' ? 'bg-[#164e43] text-white' : 'text-[#607368] hover:bg-[#f5f7f6]'
-      }`}
-    >
-      📋 Patient Logs
-    </button>
-    <button 
-      onClick={() => setCurrentView('toothchart')} 
-      className={`w-full text-left px-4 py-3 rounded-xl font-bold text-xs transition cursor-pointer ${
-        currentView === 'toothchart' ? 'bg-[#164e43] text-white' : 'text-[#607368] hover:bg-[#f5f7f6]'
-      }`}
-    >
-      🦷 Patient Tooth Charts
-    </button>
-    <button 
-      onClick={() => setCurrentView('profile')} 
-      className={`w-full text-left px-4 py-3 rounded-xl font-bold text-xs transition cursor-pointer ${
-        currentView === 'profile' ? 'bg-[#164e43] text-white' : 'text-[#607368] hover:bg-[#f5f7f6]'
-      }`}
-    >
-      👤 Profile
-    </button>
-  </>
-)}
+              <>
+                <button 
+                  onClick={() => setCurrentView('dashboard')} 
+                  className={`w-full text-left px-4 py-3 rounded-xl font-bold text-xs transition cursor-pointer ${
+                    currentView === 'dashboard' ? 'bg-[#164e43] text-white' : 'text-[#607368] hover:bg-[#f5f7f6]'
+                  }`}
+                >
+                  📊 Dashboard &amp; Reports
+                </button>
+                <button 
+                  onClick={() => setCurrentView('scheduler')} 
+                  className={`w-full text-left px-4 py-3 rounded-xl font-bold text-xs transition cursor-pointer ${
+                    currentView === 'scheduler' ? 'bg-[#164e43] text-white' : 'text-[#607368] hover:bg-[#f5f7f6]'
+                  }`}
+                >
+                  📅 Availability Scheduler
+                </button>
+                <button 
+                  onClick={() => setCurrentView('logs')} 
+                  className={`w-full text-left px-4 py-3 rounded-xl font-bold text-xs transition cursor-pointer ${
+                    currentView === 'logs' ? 'bg-[#164e43] text-white' : 'text-[#607368] hover:bg-[#f5f7f6]'
+                  }`}
+                >
+                  📋 Patient Logs
+                </button>
+                <button 
+                  onClick={() => setCurrentView('toothchart')} 
+                  className={`w-full text-left px-4 py-3 rounded-xl font-bold text-xs transition cursor-pointer ${
+                    currentView === 'toothchart' ? 'bg-[#164e43] text-white' : 'text-[#607368] hover:bg-[#f5f7f6]'
+                  }`}
+                >
+                  🦷 Patient Tooth Charts
+                </button>
+                <button 
+                  onClick={() => setCurrentView('profile')} 
+                  className={`w-full text-left px-4 py-3 rounded-xl font-bold text-xs transition cursor-pointer ${
+                    currentView === 'profile' ? 'bg-[#164e43] text-white' : 'text-[#607368] hover:bg-[#f5f7f6]'
+                  }`}
+                >
+                  👤 Profile
+                </button>
+              </>
+            )}
 
             {isAssistant && (
               <>
@@ -232,6 +233,10 @@ function MainWorkspace({ authenticatedUser, handleLogout }) {
 }
 
 export default function App() {
+  // Check for resetToken inside the App component
+  const urlParams = new URLSearchParams(window.location.search);
+  const resetToken = urlParams.get('resetToken');
+
   const [authenticatedUser, setAuthenticatedUser] = useState(() => {
     const savedUser = localStorage.getItem('dental_portal_user');
     return savedUser ? JSON.parse(savedUser) : null;
@@ -260,7 +265,6 @@ export default function App() {
     }
   };
 
-  // Archived / rejected / deleted accounts are signed out right away, even if they are mid-session
   const handleForcedLogout = async (reason) => {
     localStorage.removeItem('dental_portal_user');
     setAuthenticatedUser(null);
@@ -275,6 +279,19 @@ export default function App() {
     );
   };
   useSessionGuard(authenticatedUser, handleForcedLogout);
+
+  // Render ResetPassword view if a resetToken exists in URL
+  if (resetToken) {
+    return (
+      <ResetPassword 
+        token={resetToken} 
+        onComplete={() => {
+          window.history.replaceState({}, document.title, window.location.pathname);
+          window.location.reload();
+        }} 
+      />
+    );
+  }
 
   return (
     <ClinicProvider>
